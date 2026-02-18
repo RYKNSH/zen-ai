@@ -640,3 +640,36 @@ export interface DanaProtocol {
     /** Merge imported knowledge into agent's active strategies. */
     mergeStrategies(current: ActiveStrategies, incoming: ActiveStrategies): ActiveStrategies;
 }
+
+// ============================================================================
+// Tool Synthesis (精進 Virya — Autonomous Tool Generation)
+// ============================================================================
+
+/** A blueprint for a tool to be synthesized by the LLM. */
+export interface ToolBlueprint {
+    /** Tool name. */
+    name: string;
+    /** Human-readable description. */
+    description: string;
+    /** Parameter schema. */
+    parameters: ParameterSchema;
+    /** The JavaScript/TypeScript function body (as a string). */
+    implementation: string;
+    /** Confidence score of the synthesis (0-1). */
+    confidence: number;
+    /** Reason the tool was needed. */
+    reason: string;
+}
+
+/** Result of a tool synthesis attempt. */
+export interface ToolSynthesisResult {
+    /** Whether synthesis succeeded. */
+    success: boolean;
+    /** The synthesized tool (if successful). */
+    tool?: Tool;
+    /** The blueprint used for synthesis. */
+    blueprint?: ToolBlueprint;
+    /** Error message if synthesis failed. */
+    error?: string;
+}
+

@@ -163,6 +163,21 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
     }
 
     /**
+     * Dynamically register a new tool at runtime.
+     * Used by Virya (精進) for autonomous tool synthesis.
+     */
+    addTool(tool: Tool): void {
+        this.tools.set(tool.name, tool);
+    }
+
+    /**
+     * Get the available tool names (for plugins to inspect capabilities).
+     */
+    getToolNames(): string[] {
+        return Array.from(this.tools.keys());
+    }
+
+    /**
      * Run the agent's main loop until the goal is reached or maxSteps is hit.
      */
     async run(): Promise<void> {

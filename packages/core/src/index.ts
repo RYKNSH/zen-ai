@@ -43,6 +43,8 @@ export type {
     KnowledgeGift,
     KnowledgePacket,
     DanaProtocol,
+    ToolBlueprint,
+    ToolSynthesisResult,
 } from "./types.js";
 
 // Classes

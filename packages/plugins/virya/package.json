@@ -1,0 +1,19 @@
+{
+    "name": "@zen-ai/plugin-virya",
+    "version": "0.1.0",
+    "description": "Virya (精進) — Autonomous tool synthesis plugin for ZEN AI agents",
+    "type": "module",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "clean": "rm -rf dist"
+    },
+    "dependencies": {
+        "@zen-ai/core": "workspace:*"
+    },
+    "devDependencies": {
+        "typescript": "^5.7.0"
+    },
+    "license": "MIT"
+}
