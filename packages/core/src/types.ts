@@ -450,6 +450,16 @@ export interface AgentState {
 // Phase 4: AnattaSelfEvolver (無我・自己進化)
 // ============================================================================
 
+/** Active strategies — the "live" output of self-evolution, consumed by decide(). */
+export interface ActiveStrategies {
+    /** Tool preference weights: higher = prefer this tool (0-1). */
+    toolPreferences: Record<string, number>;
+    /** Patterns to avoid (injected into LLM prompt as warnings). */
+    avoidPatterns: string[];
+    /** Approach hints (injected into LLM prompt as guidance). */
+    approachHints: string[];
+}
+
 /** Self-model: agent's understanding of its own behavior patterns. */
 export interface SelfModel {
     /** Per-tool usage statistics. */
@@ -463,6 +473,11 @@ export interface SelfModel {
     sufferingTrend: number[];
     /** Evolution history — what the agent has changed about itself. */
     evolutionLog: SelfEvolutionRecord[];
+    /**
+     * Active strategies — THE closed-loop learning output.
+     * evolveIfNeeded() writes here; decide() reads from here.
+     */
+    activeStrategies: ActiveStrategies;
 }
 
 /** A record of a self-evolution event. */

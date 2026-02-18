@@ -36,6 +36,7 @@ export type {
     SelfModel,
     SelfEvolutionRecord,
     SelfEvolutionProposal,
+    ActiveStrategies,
 } from "./types.js";
 
 // Classes

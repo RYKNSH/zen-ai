@@ -86,6 +86,11 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
         toolStats: {},
         sufferingTrend: [],
         evolutionLog: [],
+        activeStrategies: {
+            toolPreferences: {},
+            avoidPatterns: [],
+            approachHints: [],
+        },
     };
 
     constructor(config: ZenAgentConfig) {
@@ -338,6 +343,30 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
             ? await this.failureDB.retrieve(this.delta.description, 3)
             : [];
 
+        // Build active strategy sections (Closed-Loop Learning output)
+        const strat = this.selfModel.activeStrategies;
+        const stratSections: string[] = [];
+
+        if (Object.keys(strat.toolPreferences).length > 0) {
+            const prefs = Object.entries(strat.toolPreferences)
+                .sort(([, a], [, b]) => b - a)
+                .map(([tool, weight]) => `- ${tool}: ${(weight * 100).toFixed(0)}% preference`)
+                .join("\n");
+            stratSections.push(`## 🧭 Tool Preferences (learned)\n${prefs}`);
+        }
+
+        if (strat.avoidPatterns.length > 0) {
+            stratSections.push(
+                `## 🚫 Avoid Patterns (learned from past suffering)\n${strat.avoidPatterns.map((p) => `- ${p}`).join("\n")}`,
+            );
+        }
+
+        if (strat.approachHints.length > 0) {
+            stratSections.push(
+                `## 💡 Approach Guidance (self-evolved)\n${strat.approachHints.map((h) => `- ${h}`).join("\n")}`,
+            );
+        }
+
         // Build system message
         const systemMessage: ChatMessage = {
             role: "system",
@@ -357,6 +386,7 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                 warnings.length > 0
                     ? `## ⚠️ Failure Warnings\n${warnings.map((w) => `- "${w.proverb}" (when: ${w.condition}, severity: ${w.severity})`).join("\n")}`
                     : "",
+                ...stratSections,
                 "",
                 "Choose the most appropriate tool to make progress. If the goal appears complete, respond with exactly: DONE",
             ]
@@ -891,10 +921,74 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                 type: (proposal.type as SelfEvolutionRecord["type"]) || "strategy_change",
             };
 
+            // =====================================================
+            // CLOSED-LOOP LEARNING: Apply proposal to activeStrategies
+            // This is THE moment where evolution becomes action.
+            // =====================================================
+            this.applyEvolution(record);
             this.selfModel.evolutionLog.push(record);
             this.emit("anatta:evolved", record);
         } catch {
             // Silently skip evolution if LLM fails
+        }
+    }
+
+    /**
+     * Apply a self-evolution record to activeStrategies.
+     * This closes the learning loop: evolve → strategy → decide → act → observe → evolve.
+     */
+    private applyEvolution(record: SelfEvolutionRecord): void {
+        const strat = this.selfModel.activeStrategies;
+
+        switch (record.type) {
+            case "tool_preference": {
+                // Parse tool name from the change description
+                // e.g. "Prefer file_read over http_request" → boost file_read
+                const toolNames = Array.from(this.tools.keys());
+                for (const toolName of toolNames) {
+                    if (record.change.toLowerCase().includes(toolName.toLowerCase())) {
+                        // Boost mentioned tool, or reduce it if "avoid" is mentioned
+                        const isAvoid = record.change.toLowerCase().includes("avoid") ||
+                            record.change.toLowerCase().includes("reduce") ||
+                            record.change.toLowerCase().includes("less");
+                        const current = strat.toolPreferences[toolName] ?? 0.5;
+                        strat.toolPreferences[toolName] = isAvoid
+                            ? Math.max(0, current - 0.2)
+                            : Math.min(1, current + 0.2);
+                    }
+                }
+                break;
+            }
+            case "approach_shift": {
+                // Add as approach hint (max 5 hints)
+                strat.approachHints.push(record.change);
+                if (strat.approachHints.length > 5) strat.approachHints.shift();
+                break;
+            }
+            case "strategy_change": {
+                // Add as approach hint
+                strat.approachHints.push(record.change);
+                if (strat.approachHints.length > 5) strat.approachHints.shift();
+                break;
+            }
+            case "milestone_reorder": {
+                // Record as approach hint (milestone reordering is advisory)
+                strat.approachHints.push(`Milestone hint: ${record.change}`);
+                if (strat.approachHints.length > 5) strat.approachHints.shift();
+                break;
+            }
+        }
+
+        // Auto-generate avoidPatterns from high-suffering tools
+        for (const [toolName, stats] of Object.entries(this.selfModel.toolStats)) {
+            if (stats.failures > 3 && stats.failures / stats.uses > 0.6) {
+                const pattern = `Tool "${toolName}" has ${(stats.failures / stats.uses * 100).toFixed(0)}% failure rate — consider alternatives`;
+                if (!strat.avoidPatterns.includes(pattern)) {
+                    strat.avoidPatterns.push(pattern);
+                    // Max 5 avoid patterns
+                    if (strat.avoidPatterns.length > 5) strat.avoidPatterns.shift();
+                }
+            }
         }
     }
 
