@@ -21,6 +21,8 @@ import type {
     CausalLink,
     AwakeningStageResult,
     KarmaType,
+    SelfModel,
+    SelfEvolutionRecord,
 } from "./types.js";
 
 /** Default snapshot when none is provided. */
@@ -78,6 +80,13 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
 
     // --- Phase 3: Seven Factors state ---
     private awakeningEnabled = false;
+
+    // --- Phase 4: Anatta Self-Model ---
+    private selfModel: SelfModel = {
+        toolStats: {},
+        sufferingTrend: [],
+        evolutionLog: [],
+    };
 
     constructor(config: ZenAgentConfig) {
         super();
@@ -201,6 +210,9 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                     step: this.stepCount,
                 });
 
+                // 6a. Update self-model (Phase 4: Anatta)
+                this.updateSelfModel(action.toolName, result.success);
+
                 // 6b. Track action for causal analysis (Phase 2)
                 this.recentActions.push({
                     id: `action_${this.stepCount}`,
@@ -224,6 +236,9 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
             if (this.karmaMemoryDB) {
                 await this.karmaMemoryDB.applyImpermanence();
             }
+
+            // Self-evolution check (Phase 4: Anatta)
+            await this.evolveIfNeeded();
 
             this.emit("agent:complete", {
                 goal: this.goal,
@@ -509,6 +524,7 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
         this.failurePatternCounts.set(patternKey, count);
         if (count >= 3) {
             this.tanhaLoopDetected = true;
+            this.emit("tanha:loop:detected", { pattern: patternKey, count });
         }
 
         // --- Phase 1.5: Store to KarmaMemory ---
@@ -788,5 +804,100 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
             }
         }
         throw lastError;
+    }
+
+    // =========================================================================
+    // Phase 4: Anatta Self-Evolver (無我・自己進化)
+    // =========================================================================
+
+    /** Update the self-model after each tool execution. */
+    private updateSelfModel(toolName: string, success: boolean): void {
+        // Update tool stats
+        if (!this.selfModel.toolStats[toolName]) {
+            this.selfModel.toolStats[toolName] = {
+                uses: 0,
+                successes: 0,
+                failures: 0,
+                avgSufferingDelta: 0,
+            };
+        }
+        const stats = this.selfModel.toolStats[toolName];
+        stats.uses++;
+        if (success) stats.successes++;
+        else stats.failures++;
+
+        // Update suffering trend
+        const currentSuffering = this.delta?.sufferingDelta ?? 0;
+        stats.avgSufferingDelta =
+            (stats.avgSufferingDelta * (stats.uses - 1) + currentSuffering) / stats.uses;
+        this.selfModel.sufferingTrend.push(currentSuffering);
+        // Keep last 20 entries
+        if (this.selfModel.sufferingTrend.length > 20) {
+            this.selfModel.sufferingTrend.shift();
+        }
+    }
+
+    /** Check if self-evolution is needed and apply if so. */
+    private async evolveIfNeeded(): Promise<void> {
+        const trend = this.selfModel.sufferingTrend;
+        if (trend.length < 5) return; // Need enough data
+
+        // Check: is suffering trending upward?
+        const recentAvg =
+            trend.slice(-5).reduce((a, b) => a + b, 0) / 5;
+        const EVOLUTION_THRESHOLD = 0.4;
+
+        if (recentAvg < EVOLUTION_THRESHOLD && !this.tanhaLoopDetected) return;
+
+        // Ask LLM for self-evolution proposal
+        const prompt = [
+            "You are analyzing an AI agent's self-model to propose improvements.",
+            "",
+            "## Tool Usage Statistics",
+            JSON.stringify(this.selfModel.toolStats, null, 2),
+            "",
+            "## Suffering Trend (last 20 steps)",
+            JSON.stringify(trend),
+            "",
+            "## Current State",
+            `Tanha Loop Detected: ${this.tanhaLoopDetected}`,
+            `Recent Avg Suffering: ${recentAvg.toFixed(3)}`,
+            `Total Evolutions: ${this.selfModel.evolutionLog.length}`,
+            "",
+            "Propose ONE concrete change to reduce suffering. Respond in JSON:",
+            '{"change": "...", "reason": "...", "type": "tool_preference|approach_shift|milestone_reorder|strategy_change", "confidence": 0.0-1.0}',
+        ].join("\n");
+
+        try {
+            const raw = await this.retryLLM(() => this.llm.complete(prompt));
+            const match = raw.match(/\{[\s\S]*\}/);
+            if (!match) return;
+
+            const proposal = JSON.parse(match[0]) as {
+                change: string;
+                reason: string;
+                type: string;
+                confidence: number;
+            };
+
+            if (proposal.confidence < 0.5) return; // Low confidence — skip
+
+            const record: SelfEvolutionRecord = {
+                timestamp: new Date().toISOString(),
+                change: proposal.change,
+                reason: proposal.reason,
+                type: (proposal.type as SelfEvolutionRecord["type"]) || "strategy_change",
+            };
+
+            this.selfModel.evolutionLog.push(record);
+            this.emit("anatta:evolved", record);
+        } catch {
+            // Silently skip evolution if LLM fails
+        }
+    }
+
+    /** Get the current self-model (for external inspection / testing). */
+    getSelfModel(): Readonly<SelfModel> {
+        return this.selfModel;
     }
 }

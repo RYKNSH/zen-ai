@@ -33,6 +33,9 @@ export type {
     CausalLink,
     AwakeningStage,
     AwakeningStageResult,
+    SelfModel,
+    SelfEvolutionRecord,
+    SelfEvolutionProposal,
 } from "./types.js";
 
 // Classes

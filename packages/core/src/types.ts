@@ -398,6 +398,19 @@ export interface ZenAgentEvents {
 
     /** Emitted when an awakening stage is completed during decide(). */
     "awakening:stage": AwakeningStageResult;
+
+    // --- Buddhist AI Events (Phase 0.5 — Tanha) ---
+
+    /** Emitted when a Tanha (craving) loop is detected. */
+    "tanha:loop:detected": {
+        pattern: string;
+        count: number;
+    };
+
+    // --- Buddhist AI Events (Phase 4 — Anatta) ---
+
+    /** Emitted when the agent evolves its own behavior. */
+    "anatta:evolved": SelfEvolutionRecord;
 }
 
 // ---------------------------------------------------------------------------
@@ -428,3 +441,47 @@ export interface AgentState {
         userInstructionCount: number;
     };
 }
+
+// ============================================================================
+// Phase 4: AnattaSelfEvolver (無我・自己進化)
+// ============================================================================
+
+/** Self-model: agent's understanding of its own behavior patterns. */
+export interface SelfModel {
+    /** Per-tool usage statistics. */
+    toolStats: Record<string, {
+        uses: number;
+        successes: number;
+        failures: number;
+        avgSufferingDelta: number;
+    }>;
+    /** Rolling suffering trend (last N steps). */
+    sufferingTrend: number[];
+    /** Evolution history — what the agent has changed about itself. */
+    evolutionLog: SelfEvolutionRecord[];
+}
+
+/** A record of a self-evolution event. */
+export interface SelfEvolutionRecord {
+    /** Timestamp of the evolution. */
+    timestamp: string;
+    /** What was changed. */
+    change: string;
+    /** Reason for the change. */
+    reason: string;
+    /** Type of evolution. */
+    type: "tool_preference" | "approach_shift" | "milestone_reorder" | "strategy_change";
+}
+
+/** A proposal for self-evolution. */
+export interface SelfEvolutionProposal {
+    /** Description of what to change. */
+    change: string;
+    /** Reason inferred from current self-model. */
+    reason: string;
+    /** Type of change. */
+    type: SelfEvolutionRecord["type"];
+    /** Confidence in this proposal (0-1). */
+    confidence: number;
+}
+
