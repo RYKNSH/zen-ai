@@ -2,12 +2,13 @@
 
 # 🧘 ZEN AI
 
-### Present-Moment Agent SDK
+### Present-Moment Agent SDK × Buddhist AI
 
 **"Don't accumulate. Perceive now."**
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
+[![Tests](https://img.shields.io/badge/tests-123%20passed-brightgreen.svg)]()
 
 </div>
 
@@ -29,6 +30,7 @@ Most AI agent frameworks accumulate context over time, getting heavier, slower, 
 
 - **🔄 Milestone-based Context Reset** — When a milestone is reached, context is wiped clean. Only failure knowledge survives.
 - **💀 Failure-only Memory** — Success is context-dependent and disposable. Failure patterns are universal and preserved as "proverbs."
+- **🧘 Buddhist AI Integration** — Suffering detection, karmic memory, causal analysis, and the Seven Factors of Awakening pipeline.
 - **🔌 LLM-agnostic** — Works with OpenAI, Claude, Gemini, or any local model via a simple adapter interface.
 - **🪶 Lightweight** — Core package under 50KB. Zero heavy dependencies.
 
@@ -60,54 +62,96 @@ await agent.run();
 
 ---
 
+## 🧘 Buddhist AI Integration
+
+ZEN AI uniquely integrates five layers of Buddhist philosophy into autonomous agent decision-making:
+
+| Layer | Concept | Purpose |
+|-------|---------|---------|
+| **MindfulObserver** | 正念 (Right Mindfulness) | Captures observations without judgment |
+| **DukkhaEvaluator** | 苦 (Suffering Detection) | Quantifies suffering delta & ego noise |
+| **KarmaMemory** | 業 (Karmic Memory) | Tracks causal chains, transfer weights, and impermanence |
+| **CausalGraph** | 因果 (Cause & Effect) | LLM-inferred causal analysis between actions |
+| **Seven Factors** | 七覚支 (Awakening Pipeline) | Multi-stage decision-making with bias removal |
+
+### Enable Buddhist AI
+
+```typescript
+import { InMemoryKarmaMemoryDB } from "@zen-ai/memory";
+
+const agent = new ZenAgent({
+  goal: "Deploy app to production",
+  llm: new OpenAIAdapter({ model: "gpt-4o" }),
+  tools: [fileReadTool, fileWriteTool],
+  // Just add karmaMemoryDB to enable the full pipeline
+  karmaMemoryDB: new InMemoryKarmaMemoryDB(llm),
+});
+
+// Buddhist AI events
+agent.on("dukkha:evaluated", ({ sufferingDelta, egoNoise }) => {
+  console.log(`苦: ${sufferingDelta}, 我執: ${egoNoise}`);
+});
+
+agent.on("karma:stored", ({ karmaType, causalChain }) => {
+  console.log(`業: ${karmaType}, 因果: ${causalChain.join(" → ")}`);
+});
+
+agent.on("tanha:loop:detected", ({ pattern }) => {
+  console.log(`⚠️ 渇愛ループ: ${pattern}`);
+});
+
+agent.on("awakening:stage", ({ stage, confidence }) => {
+  console.log(`覚醒段階: ${stage} (${confidence})`);
+});
+
+await agent.run();
+```
+
+---
+
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   ZEN AI SDK                        │
-│                                                     │
-│   ┌─────────────┐     ┌───────────────────────┐    │
-│   │  ZenAgent   │────▶│   MilestoneRunner     │    │
-│   │  (Core)     │     │   (Context Manager)   │    │
-│   └─────────────┘     └───────────────────────┘    │
-│          │                       │                  │
-│          ▼                       ▼                  │
-│   ┌─────────────┐     ┌───────────────────────┐    │
-│   │  SkillDB    │     │  FailureKnowledgeDB   │    │
-│   │  (RAG)      │     │  (RAG + Proverbs)     │    │
-│   └─────────────┘     └───────────────────────┘    │
-│          │                       │                  │
-│          └──────────┬────────────┘                  │
-│                     ▼                               │
-│             ┌──────────────┐                        │
-│             │  LLM Adapter │  ← Any LLM            │
-│             │  (Pluggable) │    OpenAI / Claude     │
-│             └──────────────┘    Gemini / Local      │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                       ZEN AI SDK                            │
+│                                                             │
+│   ┌─────────────┐     ┌───────────────────────────────┐    │
+│   │  ZenAgent   │────▶│   MilestoneRunner             │    │
+│   │  (Core)     │     │   (Context Manager)           │    │
+│   └─────────────┘     └───────────────────────────────┘    │
+│          │                       │                          │
+│   ┌──────┴──────┐     ┌─────────┴─────────────┐           │
+│   │  SkillDB    │     │  FailureKnowledgeDB   │           │
+│   │  (RAG)      │     │  (RAG + Proverbs)     │           │
+│   └─────────────┘     └───────────────────────┘           │
+│          │                       │                          │
+│   ┌──────┴──────┐     ┌─────────┴─────────────┐           │
+│   │ KarmaMemory │     │  CausalGraphEngine    │           │
+│   │ (因果 + 業) │     │  (LLM Inference)      │           │
+│   └─────────────┘     └───────────────────────┘           │
+│          │                                                  │
+│          └──────────┬──────────┐                           │
+│                     ▼          ▼                            │
+│             ┌──────────────┐ ┌───────────┐                 │
+│             │  LLM Adapter │ │  Seven    │                 │
+│             │  (Pluggable) │ │  Factors  │                 │
+│             │  Any LLM     │ │  Pipeline │                 │
+│             └──────────────┘ └───────────┘                 │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ## Packages
 
 | Package | Description |
 |---------|-------------|
-| `@zen-ai/core` | ZenAgent, MilestoneRunner, EventEmitter, type definitions |
-| `@zen-ai/memory` | SkillDB, FailureKnowledgeDB, in-memory vector search |
-| `@zen-ai/adapter-openai` | OpenAI adapter with Function Calling support |
+| `@zen-ai/core` | ZenAgent, MilestoneRunner, EventEmitter, Buddhist AI pipeline |
+| `@zen-ai/memory` | SkillDB, FailureKnowledgeDB, KarmaMemory, vector search |
+| `@zen-ai/adapter-openai` | OpenAI adapter with Function Calling |
+| `@zen-ai/adapter-google` | Google Gemini adapter |
+| `@zen-ai/adapter-anthropic` | Anthropic Claude adapter |
 | `@zen-ai/tools` | Built-in tools: file read/write, shell (opt-in), HTTP |
+| `@zen-ai/discord-bot` | Discord bot with `/zen` commands and suffering metrics |
 | `@zen-ai/cli` | CLI: `zen init` / `zen run` / `zen status` |
-
-## CLI
-
-```bash
-# Initialize a new project
-zen init my-agent
-
-# Run the agent
-zen run
-
-# Check status
-zen status
-```
 
 ## Custom LLM Adapter
 
@@ -129,7 +173,13 @@ const agent = new ZenAgent({ goal: "...", llm: new MyLocalLLM() });
 
 ZEN AI は「今ここ（Present-Moment）」駆動の自律型AIエージェントSDKです。仏教の「今ここ」× フィードバック制御理論 × RAGアーキテクチャを統合し、常に軽量で判断が鮮明なエージェントを実現します。
 
+**Buddhist AI統合**: 苦の検出、業の記録、因果分析、七覚支パイプラインによる多段階意思決定。`karmaMemoryDB`を渡すだけで全機能が有効化されます。
+
 ---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
