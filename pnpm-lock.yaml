@@ -131,6 +131,52 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/plugins/dana:
+    dependencies:
+      '@zen-ai/core':
+        specifier: workspace:*
+        version: link:../../core
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/plugins/prajna:
+    dependencies:
+      '@zen-ai/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@zen-ai/memory':
+        specifier: workspace:*
+        version: link:../../memory
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/plugins/sila:
+    dependencies:
+      '@zen-ai/core':
+        specifier: workspace:*
+        version: link:../../core
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@22.19.11)
+
+  packages/plugins/virya:
+    dependencies:
+      '@zen-ai/core':
+        specifier: workspace:*
+        version: link:../../core
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
   tools:
     dependencies:
       '@zen-ai/core':

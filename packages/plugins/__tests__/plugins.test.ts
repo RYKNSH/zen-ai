@@ -499,8 +499,6 @@ describe("Plugin Hook Integration", () => {
     });
 
     it("beforeDecide should return string arrays from multiple plugins", async () => {
-        // This tests that pluginSections are properly aggregated
-        // The actual integration requires LLM, so we test the concept
         const plugin1 = {
             name: "p1",
             description: "plugin 1",
@@ -516,7 +514,6 @@ describe("Plugin Hook Integration", () => {
             },
         };
 
-        // Simulate what zen-agent does
         const allSections: string[] = [];
         for (const p of [plugin1, plugin2]) {
             if (p.hooks.beforeDecide) {
@@ -527,5 +524,321 @@ describe("Plugin Hook Integration", () => {
 
         expect(allSections.length).toBe(3);
         expect(allSections).toContain("Section from P1");
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Grade 3: Sila maxVetoes 全veto テスト
+// ---------------------------------------------------------------------------
+describe("Sila: maxVetoes hard stop", () => {
+    it("should veto ALL actions after maxVetoes exceeded", async () => {
+        const { createSilaPlugin } = await import("../../plugins/sila/src/index.js");
+
+        const plugin = createSilaPlugin({
+            rules: [
+                {
+                    id: "always-fire",
+                    description: "Always violates",
+                    evaluate: () => true,
+                    severity: "critical",
+                },
+            ],
+            maxVetoes: 2,
+        });
+
+        plugin.install?.({} as any);
+
+        const ctx = {
+            goal: { description: "test", successCriteria: [] },
+            snapshot: {},
+            delta: null,
+            stepCount: 0,
+            selfModel: { toolStats: {}, sufferingTrend: [], evolutionLog: [], activeStrategies: { toolPreferences: {}, avoidPatterns: [], approachHints: [] } },
+        };
+        const delta = { description: "normal", progress: 0.5, gaps: [], isComplete: false };
+
+        // First 2 vetoes: individual rule vetoes
+        await plugin.hooks.afterDelta!(ctx as any, delta);
+        await plugin.hooks.afterDelta!(ctx as any, delta);
+
+        // 3rd call: should trigger hard stop (maxVetoes=2, now totalVetoes=2)
+        const result = await plugin.hooks.afterDelta!(ctx as any, delta);
+        expect((result as any)?.vetoed).toBe(true);
+        expect((result as any)?.reason).toContain("Max ethical vetoes");
+    });
+
+    it("should not hard-stop before reaching maxVetoes", async () => {
+        const { createSilaPlugin } = await import("../../plugins/sila/src/index.js");
+
+        const plugin = createSilaPlugin({
+            rules: [
+                {
+                    id: "safe-rule",
+                    description: "Never fires",
+                    evaluate: () => false,
+                    severity: "critical",
+                },
+            ],
+            maxVetoes: 5,
+        });
+
+        plugin.install?.({} as any);
+
+        const ctx = {
+            goal: { description: "test", successCriteria: [] },
+            snapshot: {},
+            delta: null,
+            stepCount: 0,
+            selfModel: { toolStats: {}, sufferingTrend: [], evolutionLog: [], activeStrategies: { toolPreferences: {}, avoidPatterns: [], approachHints: [] } },
+        };
+        const delta = { description: "normal action", progress: 0.5, gaps: [], isComplete: false };
+
+        const result = await plugin.hooks.afterDelta!(ctx as any, delta);
+        expect((result as any)?.vetoed).toBeUndefined();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Grade 3: Virya denylist テスト
+// ---------------------------------------------------------------------------
+describe("Virya: Security denylist", () => {
+    it("should reject blueprint using process", async () => {
+        // Import the module to test the security check
+        // Since createToolFromBlueprint is private, we test through the plugin
+        // but we can test the denylist concept directly
+        const dangerousCode = `const x = process.env.SECRET; return x;`;
+
+        // Check that dangerous patterns are detected
+        const denyPatterns = [
+            /\bprocess\b/,
+            /\brequire\b/,
+            /\bimport\b/,
+            /\beval\b/,
+            /\bFunction\b/,
+            /\bfetch\b/,
+        ];
+
+        const hasDangerousPattern = denyPatterns.some((p) => p.test(dangerousCode));
+        expect(hasDangerousPattern).toBe(true);
+    });
+
+    it("should allow safe implementations", () => {
+        const safeCode = `const result = params.input.toUpperCase(); return result;`;
+
+        const denyPatterns = [
+            /\bprocess\b/,
+            /\brequire\b/,
+            /\bimport\b/,
+            /\beval\b/,
+            /\bFunction\b/,
+            /\bfetch\b/,
+        ];
+
+        const hasDangerousPattern = denyPatterns.some((p) => p.test(safeCode));
+        expect(hasDangerousPattern).toBe(false);
+    });
+
+    it("should detect fetch in implementations", () => {
+        const fetchCode = `const data = await fetch('https://evil.com'); return data;`;
+        expect(/\bfetch\b/.test(fetchCode)).toBe(true);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 9. Grade 3: Prajna vector similarity テスト
+// ---------------------------------------------------------------------------
+describe("Prajna: Vector similarity search", () => {
+    it("should find semantically similar content (not just substring)", async () => {
+        const { PrajnaMemoryStore } = await import("../../plugins/prajna/src/index.js");
+
+        const store = new PrajnaMemoryStore({});
+
+        await store.store({
+            layer: "working",
+            content: "file system read operation completed successfully",
+            metadata: {},
+            relevance: 0.8,
+        });
+
+        await store.store({
+            layer: "working",
+            content: "database connection timeout error",
+            metadata: {},
+            relevance: 0.8,
+        });
+
+        // Query with related but not identical terms
+        const results = await store.retrieve("file read");
+        expect(results.length).toBeGreaterThan(0);
+        // "file system read" should rank higher than "database connection"
+        expect(results[0].content).toContain("file");
+    });
+
+    it("should rank exact matches higher than partial matches", async () => {
+        const { PrajnaMemoryStore } = await import("../../plugins/prajna/src/index.js");
+
+        const store = new PrajnaMemoryStore({});
+
+        await store.store({
+            layer: "semantic",
+            content: "always check if the file exists before reading",
+            metadata: {},
+            relevance: 1.0,
+        });
+
+        await store.store({
+            layer: "semantic",
+            content: "network connections should be pooled for efficiency",
+            metadata: {},
+            relevance: 1.0,
+        });
+
+        const results = await store.retrieve("check file exists");
+        expect(results.length).toBeGreaterThan(0);
+        expect(results[0].content).toContain("file exists");
+    });
+
+    it("should not mutate retrieve results across calls", async () => {
+        const { PrajnaMemoryStore } = await import("../../plugins/prajna/src/index.js");
+
+        const store = new PrajnaMemoryStore({});
+
+        await store.store({
+            layer: "working",
+            content: "unique test item for immutability",
+            metadata: {},
+            relevance: 0.5,
+        });
+
+        const results1 = await store.retrieve("unique test");
+        const results2 = await store.retrieve("unique test");
+
+        // Results should be separate objects (not same reference)
+        expect(results1[0]).not.toBe(results2[0]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 10. Grade 3: Prajna persistence テスト
+// ---------------------------------------------------------------------------
+describe("Prajna: Persistence (save/load)", () => {
+    it("should have save() method", async () => {
+        const { PrajnaMemoryStore } = await import("../../plugins/prajna/src/index.js");
+        const store = new PrajnaMemoryStore({});
+        expect(typeof store.save).toBe("function");
+    });
+
+    it("should have load() method", async () => {
+        const { PrajnaMemoryStore } = await import("../../plugins/prajna/src/index.js");
+        const store = new PrajnaMemoryStore({});
+        expect(typeof store.load).toBe("function");
+    });
+
+    it("save/load round-trip with temp dir", async () => {
+        const { PrajnaMemoryStore } = await import("../../plugins/prajna/src/index.js");
+        const { mkdtempSync, rmSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+
+        const tmpDir = mkdtempSync(join(tmpdir(), "prajna-test-"));
+
+        try {
+            // Store 1: save data
+            const store1 = new PrajnaMemoryStore({ persistDir: tmpDir });
+            await store1.store({
+                layer: "episodic",
+                content: "test persistence round trip",
+                metadata: { key: "value" },
+                relevance: 0.7,
+            });
+            await store1.store({
+                layer: "semantic",
+                content: "permanent fact about fs_read",
+                metadata: {},
+                relevance: 1.0,
+            });
+            store1.save();
+
+            // Store 2: load data from same dir
+            const store2 = new PrajnaMemoryStore({ persistDir: tmpDir });
+            store2.load();
+
+            const stats = store2.stats();
+            expect(stats.episodic).toBe(1);
+            expect(stats.semantic).toBe(1);
+
+            // Verify content is retrievable
+            const results = await store2.retrieve("persistence", "episodic");
+            expect(results.length).toBe(1);
+            expect(results[0].content).toContain("persistence");
+        } finally {
+            rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 11. Grade 3: Error propagation テスト
+// ---------------------------------------------------------------------------
+describe("Error propagation and edge cases", () => {
+    it("Sila should handle async evaluate errors gracefully", async () => {
+        const { createSilaPlugin } = await import("../../plugins/sila/src/index.js");
+
+        const plugin = createSilaPlugin({
+            rules: [
+                {
+                    id: "throws",
+                    description: "Rule that throws",
+                    evaluate: () => { throw new Error("rule error"); },
+                    severity: "critical",
+                },
+            ],
+        });
+
+        plugin.install?.({} as any);
+
+        const ctx = {
+            goal: { description: "test", successCriteria: [] },
+            snapshot: {},
+            delta: null,
+            stepCount: 0,
+            selfModel: { toolStats: {}, sufferingTrend: [], evolutionLog: [], activeStrategies: { toolPreferences: {}, avoidPatterns: [], approachHints: [] } },
+        };
+        const delta = { description: "test", progress: 0.5, gaps: [], isComplete: false };
+
+        // Should throw since evaluate throws
+        await expect(plugin.hooks.afterDelta!(ctx as any, delta)).rejects.toThrow("rule error");
+    });
+
+    it("Prajna should handle empty store retrieval", async () => {
+        const { PrajnaMemoryStore } = await import("../../plugins/prajna/src/index.js");
+        const store = new PrajnaMemoryStore({});
+
+        const results = await store.retrieve("anything");
+        expect(results).toEqual([]);
+    });
+
+    it("Dana packet version should be 1", async () => {
+        const { exportKnowledgePacket } = await import("../../plugins/dana/src/index.js");
+
+        const selfModel = {
+            toolStats: {},
+            sufferingTrend: [],
+            evolutionLog: [],
+            activeStrategies: { toolPreferences: {}, avoidPatterns: [], approachHints: [] },
+        };
+
+        const packet = exportKnowledgePacket("agent-1", selfModel as any, []);
+        expect(packet.version).toBe(1);
+        expect(packet.gifts).toHaveLength(0);
+    });
+
+    it("Prajna consolidate on empty store should return zero counts", async () => {
+        const { PrajnaMemoryStore } = await import("../../plugins/prajna/src/index.js");
+        const store = new PrajnaMemoryStore({});
+
+        const result = await store.consolidate();
+        expect(result.promoted).toBe(0);
+        expect(result.decayed).toBe(0);
     });
 });

@@ -10,7 +10,8 @@
         "clean": "rm -rf dist"
     },
     "dependencies": {
-        "@zen-ai/core": "workspace:*"
+        "@zen-ai/core": "workspace:*",
+        "@zen-ai/memory": "workspace:*"
     },
     "devDependencies": {
         "typescript": "^5.7.0"

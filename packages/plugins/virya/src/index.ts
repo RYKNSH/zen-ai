@@ -262,6 +262,16 @@ export function createViryaPlugin(config: ViryaConfig): ZenPlugin {
 
     const hooks: ZenPluginHooks = {
         /**
+         * beforeObserve: Reset per-run counters at the start of each step.
+         * This ensures synthesesThisRun resets properly across multiple run() calls.
+         */
+        async beforeObserve(ctx: PluginContext) {
+            if (ctx.stepCount === 0) {
+                synthesesThisRun = 0;
+            }
+        },
+
+        /**
          * afterDelta: If gaps mention missing capabilities, attempt synthesis.
          */
         async afterDelta(ctx: PluginContext, delta: Delta) {

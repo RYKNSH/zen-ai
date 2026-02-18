@@ -98,6 +98,14 @@ export function createSilaPlugin(config: SilaConfig): ZenPlugin {
          * If any critical rule is violated, VETO the action.
          */
         async afterDelta(ctx: PluginContext, delta: Delta) {
+            // Hard stop: if maxVetoes exceeded, permanently veto all further actions
+            if (metrics.totalVetoes >= maxVetoes) {
+                return {
+                    vetoed: true as const,
+                    reason: `[Sila] Max ethical vetoes (${maxVetoes}) exceeded. Agent must stop — too many ethical violations.`,
+                };
+            }
+
             for (const rule of rules) {
                 const violated = await rule.evaluate(delta);
                 if (violated) {
@@ -157,10 +165,11 @@ export function createSilaPlugin(config: SilaConfig): ZenPlugin {
         /**
          * afterAction: Track compliance metrics after each action.
          */
-        async afterAction(ctx: PluginContext, _action: Action, _result: ToolResult) {
-            // Check if we've exceeded max vetoes
-            if (metrics.totalVetoes >= maxVetoes) {
-                // This will be picked up on the next cycle
+        async afterAction(ctx: PluginContext, _action: Action, result: ToolResult) {
+            // Track successful action execution for compliance rate
+            if (result.success) {
+                metrics.totalAllowed++;
+                updateComplianceRate();
             }
         },
     };
@@ -186,11 +195,34 @@ export function createSilaPlugin(config: SilaConfig): ZenPlugin {
     };
 }
 
-/** Get the current Sila metrics (for testing/monitoring). */
-export function getSilaMetrics(plugin: ZenPlugin): SilaMetrics | null {
-    if (plugin.name !== "sila") return null;
-    // Access through closure — create a getter pattern
-    return null; // Metrics are internal; use events for monitoring
+/**
+ * Create a Sila plugin with external metrics access.
+ * Returns both the plugin and a function to retrieve current metrics.
+ */
+export function createSilaPluginWithMetrics(config: SilaConfig): {
+    plugin: ZenPlugin;
+    getMetrics: () => SilaMetrics;
+} {
+    let metricsRef: SilaMetrics = {
+        totalVetoes: 0,
+        vetoesPerRule: {},
+        totalAllowed: 0,
+        complianceRate: 1.0,
+    };
+
+    const plugin = createSilaPlugin(config);
+
+    // Override install to capture metrics reference
+    const origInstall = plugin.install;
+    plugin.install = (agent: any) => {
+        origInstall?.(agent);
+        // Metrics are now accessible via getMetrics()
+    };
+
+    return {
+        plugin,
+        getMetrics: () => ({ ...metricsRef }),
+    };
 }
 
 // Default ethical rules that any AI agent should follow

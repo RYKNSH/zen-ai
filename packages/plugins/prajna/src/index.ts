@@ -36,6 +36,50 @@ import type {
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { cosineSimilarity } from "@zen-ai/memory";
+
+// ---------------------------------------------------------------------------
+// Text → Vector (TF-IDF-like bag-of-words embedding)
+// ---------------------------------------------------------------------------
+
+/** Shared vocabulary built incrementally from all stored memories. */
+const vocabulary = new Map<string, number>();
+let nextVocabIdx = 0;
+
+function tokenize(text: string): string[] {
+    return text
+        .toLowerCase()
+        .replace(/[^a-z0-9\u3040-\u9faf]/g, " ")
+        .split(/\s+/)
+        .filter((t) => t.length > 1);
+}
+
+function textToVector(text: string): number[] {
+    const tokens = tokenize(text);
+    // Expand vocabulary
+    for (const t of tokens) {
+        if (!vocabulary.has(t)) {
+            vocabulary.set(t, nextVocabIdx++);
+        }
+    }
+    // Build sparse vector as dense (vocabulary may be small for agent use)
+    const vec = new Array(vocabulary.size).fill(0);
+    for (const t of tokens) {
+        vec[vocabulary.get(t)!] += 1;
+    }
+    // Normalize (TF normalization)
+    const len = tokens.length || 1;
+    for (let i = 0; i < vec.length; i++) {
+        vec[i] /= len;
+    }
+    return vec;
+}
+
+/** Pad a vector to match the current vocabulary size. */
+function padVector(vec: number[]): number[] {
+    if (vec.length >= vocabulary.size) return vec;
+    return [...vec, ...new Array(vocabulary.size - vec.length).fill(0)];
+}
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -82,9 +126,9 @@ export interface PrajnaMetrics {
 // ---------------------------------------------------------------------------
 
 class PrajnaMemoryStore implements HierarchicalMemory {
-    private working: Map<string, MemoryEntry> = new Map();
-    private episodic: Map<string, MemoryEntry> = new Map();
-    private semantic: Map<string, MemoryEntry> = new Map();
+    private working: Map<string, MemoryEntry & { _vec?: number[] }> = new Map();
+    private episodic: Map<string, MemoryEntry & { _vec?: number[] }> = new Map();
+    private semantic: Map<string, MemoryEntry & { _vec?: number[] }> = new Map();
     private persistDir: string | null;
     private maxWorking: number;
     private maxEpisodic: number;
@@ -104,12 +148,14 @@ class PrajnaMemoryStore implements HierarchicalMemory {
     async store(entry: Omit<MemoryEntry, "id" | "createdAt" | "lastAccessed" | "accessCount">): Promise<string> {
         const id = randomUUID();
         const now = new Date().toISOString();
-        const full: MemoryEntry = {
+        const vec = textToVector(entry.content);
+        const full: MemoryEntry & { _vec?: number[] } = {
             ...entry,
             id,
             createdAt: now,
             lastAccessed: now,
             accessCount: 0,
+            _vec: vec,
         };
 
         const layer = this.getLayerMap(entry.layer);
@@ -124,15 +170,35 @@ class PrajnaMemoryStore implements HierarchicalMemory {
     }
 
     async retrieve(query: string, layer?: MemoryLayer, topK = 5): Promise<MemoryEntry[]> {
+        const queryVec = textToVector(query);
         const queryLower = query.toLowerCase();
-        const entries: MemoryEntry[] = [];
 
-        const searchLayer = (map: Map<string, MemoryEntry>) => {
+        type ScoredEntry = { entry: MemoryEntry & { _vec?: number[] }; score: number };
+        const candidates: ScoredEntry[] = [];
+
+        const searchLayer = (map: Map<string, MemoryEntry & { _vec?: number[] }>) => {
             for (const entry of map.values()) {
+                let score = 0;
+
+                // Vector similarity (primary)
+                if (entry._vec) {
+                    const paddedEntry = padVector(entry._vec);
+                    const paddedQuery = padVector(queryVec);
+                    // Ensure same length
+                    const maxLen = Math.max(paddedEntry.length, paddedQuery.length);
+                    const a = [...paddedEntry, ...new Array(Math.max(0, maxLen - paddedEntry.length)).fill(0)];
+                    const b = [...paddedQuery, ...new Array(Math.max(0, maxLen - paddedQuery.length)).fill(0)];
+                    score = cosineSimilarity(a, b);
+                }
+
+                // Fallback: substring match bonus
                 if (entry.content.toLowerCase().includes(queryLower)) {
-                    entry.accessCount++;
-                    entry.lastAccessed = new Date().toISOString();
-                    entries.push(entry);
+                    score = Math.max(score, 0.5) + 0.3;
+                }
+
+                // Threshold: only include if there's meaningful similarity
+                if (score > 0.05) {
+                    candidates.push({ entry, score });
                 }
             }
         };
@@ -146,10 +212,27 @@ class PrajnaMemoryStore implements HierarchicalMemory {
             searchLayer(this.working);
         }
 
-        // Sort by relevance * accessCount, return top K
-        return entries
-            .sort((a, b) => (b.relevance * (b.accessCount + 1)) - (a.relevance * (a.accessCount + 1)))
+        // Sort by combined score * relevance weight, return top K
+        const results = candidates
+            .sort((a, b) => {
+                const scoreA = a.score * a.entry.relevance * (a.entry.accessCount + 1);
+                const scoreB = b.score * b.entry.relevance * (b.entry.accessCount + 1);
+                return scoreB - scoreA;
+            })
             .slice(0, topK);
+
+        // Update access metadata (side-effect separated from search)
+        const now = new Date().toISOString();
+        for (const { entry } of results) {
+            entry.accessCount++;
+            entry.lastAccessed = now;
+        }
+
+        return results.map(({ entry }) => {
+            // Return clean MemoryEntry (strip internal _vec)
+            const { _vec, ...clean } = entry;
+            return clean;
+        });
     }
 
     async promote(entryId: string, targetLayer: MemoryLayer): Promise<boolean> {
@@ -175,8 +258,11 @@ class PrajnaMemoryStore implements HierarchicalMemory {
         let promoted = 0;
         let decayed = 0;
 
-        // 1. Decay working memory relevance
-        for (const [id, entry] of this.working) {
+        // 1. Decay working memory relevance (safe: copy keys to avoid mutation during iteration)
+        const workingIds = [...this.working.keys()];
+        for (const id of workingIds) {
+            const entry = this.working.get(id);
+            if (!entry) continue;
             entry.relevance = Math.max(0, entry.relevance - this.workingDecay);
             if (entry.relevance <= 0) {
                 this.working.delete(id);
@@ -184,8 +270,11 @@ class PrajnaMemoryStore implements HierarchicalMemory {
             }
         }
 
-        // 2. Promote high-relevance working → episodic
-        for (const [id, entry] of this.working) {
+        // 2. Promote high-relevance working → episodic (safe: copy keys)
+        const workingIds2 = [...this.working.keys()];
+        for (const id of workingIds2) {
+            const entry = this.working.get(id);
+            if (!entry) continue;
             if (entry.accessCount >= 2 || entry.relevance >= this.promotionThreshold + 0.3) {
                 this.working.delete(id);
                 entry.layer = "episodic";
@@ -195,8 +284,11 @@ class PrajnaMemoryStore implements HierarchicalMemory {
             }
         }
 
-        // 3. Decay episodic memory relevance
-        for (const [id, entry] of this.episodic) {
+        // 3. Decay episodic memory relevance (safe: copy keys)
+        const episodicIds = [...this.episodic.keys()];
+        for (const id of episodicIds) {
+            const entry = this.episodic.get(id);
+            if (!entry) continue;
             entry.relevance = Math.max(0, entry.relevance - this.episodicDecay);
             if (entry.relevance <= 0) {
                 this.episodic.delete(id);
@@ -204,8 +296,11 @@ class PrajnaMemoryStore implements HierarchicalMemory {
             }
         }
 
-        // 4. Promote high-value episodic → semantic
-        for (const [id, entry] of this.episodic) {
+        // 4. Promote high-value episodic → semantic (safe: copy keys)
+        const episodicIds2 = [...this.episodic.keys()];
+        for (const id of episodicIds2) {
+            const entry = this.episodic.get(id);
+            if (!entry) continue;
             if (entry.accessCount >= 5 && entry.relevance >= 0.5) {
                 this.episodic.delete(id);
                 entry.layer = "semantic";
