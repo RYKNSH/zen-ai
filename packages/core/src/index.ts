@@ -27,6 +27,9 @@ export type {
     FailureDB,
     SkillEntry,
     FailureEntry,
+    KarmaEntry,
+    KarmaType,
+    KarmaMemoryDB,
 } from "./types.js";
 
 // Classes

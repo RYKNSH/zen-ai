@@ -240,6 +240,46 @@ export interface FailureDB {
 }
 
 // ---------------------------------------------------------------------------
+// Karma Memory (Phase 1: Buddhist AI)
+// ---------------------------------------------------------------------------
+
+/** Types of karmic causation. */
+export type KarmaType = "skillful" | "unskillful" | "neutral";
+
+/**
+ * A karma entry — failure knowledge enhanced with causal chain tracking.
+ * Extends FailureEntry with Buddhist AI concepts for long-term wisdom.
+ */
+export interface KarmaEntry extends FailureEntry {
+    /** Chain of cause-and-effect IDs leading to this karma. */
+    causalChain: string[];
+    /** Transfer weight: how applicable this karma is to new contexts (0-1). */
+    transferWeight: number;
+    /** Type of karma: skillful (good), unskillful (bad), or neutral. */
+    karmaType: KarmaType;
+    /** Number of times this pattern has been observed. */
+    occurrences: number;
+    /** Timestamp of last observation. */
+    lastSeen: string;
+}
+
+/** Interface for karma memory — long-term causal wisdom store. */
+export interface KarmaMemoryDB {
+    /** Store a karma entry with causal chain. */
+    store(entry: Omit<KarmaEntry, "embedding">): Promise<void>;
+    /** Retrieve karma by semantic similarity. */
+    retrieve(query: string, topK?: number): Promise<KarmaEntry[]>;
+    /** List all karma entries. */
+    list(): Promise<KarmaEntry[]>;
+    /** Find karma entries that form a causal chain for the given entry ID. */
+    traceCausalChain(entryId: string): Promise<KarmaEntry[]>;
+    /** Get entries that have been seen repeatedly (habitual patterns). */
+    getHabitualPatterns(minOccurrences?: number): Promise<KarmaEntry[]>;
+    /** Decay transfer weights over time (impermanence / 無常). */
+    applyImpermanence(decayRate?: number): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
 
