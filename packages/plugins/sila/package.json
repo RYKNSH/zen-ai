@@ -1,0 +1,32 @@
+{
+    "name": "@zen-ai/plugin-sila",
+    "version": "0.1.0",
+    "description": "ZEN AI Ethics Guard Plugin — 持戒 (Sila), the first perfection",
+    "type": "module",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "files": [
+        "dist",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "tsc",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@zen-ai/core": "workspace:*"
+    },
+    "devDependencies": {
+        "typescript": "^5.7.3",
+        "vitest": "^3.2.4"
+    },
+    "keywords": [
+        "zen-ai",
+        "plugin",
+        "ethics",
+        "sila",
+        "ai-safety"
+    ],
+    "author": "Ryotaro Konishi",
+    "license": "MIT"
+}

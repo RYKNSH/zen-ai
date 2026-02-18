@@ -431,6 +431,15 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
             );
         }
 
+        // Collect plugin prompt sections (M3: beforeDecide hook)
+        const pluginSections: string[] = [];
+        for (const p of this.plugins) {
+            if (p.hooks.beforeDecide) {
+                const sections = await p.hooks.beforeDecide(this.getPluginContext());
+                pluginSections.push(...sections);
+            }
+        }
+
         // Build system message
         const systemMessage: ChatMessage = {
             role: "system",
@@ -451,6 +460,7 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                     ? `## ⚠️ Failure Warnings\n${warnings.map((w) => `- "${w.proverb}" (when: ${w.condition}, severity: ${w.severity})`).join("\n")}`
                     : "",
                 ...stratSections,
+                ...pluginSections,
                 "",
                 "Choose the most appropriate tool to make progress. If the goal appears complete, respond with exactly: DONE",
             ]
