@@ -37,6 +37,9 @@ export type {
     SelfEvolutionRecord,
     SelfEvolutionProposal,
     ActiveStrategies,
+    ZenPlugin,
+    ZenPluginHooks,
+    PluginContext,
 } from "./types.js";
 
 // Classes

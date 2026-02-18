@@ -24,6 +24,8 @@ import type {
     SelfModel,
     SelfEvolutionRecord,
     ActiveStrategies,
+    ZenPlugin,
+    PluginContext,
 } from "./types.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -98,6 +100,9 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
         },
     };
 
+    // --- M3: Plugin System (六波羅蜜多) ---
+    private plugins: ZenPlugin[] = [];
+
     constructor(config: ZenAgentConfig) {
         super();
 
@@ -146,6 +151,18 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
     // =========================================================================
 
     /**
+     * Register a plugin (六波羅蜜多 SDK layer).
+     * Plugins hook into the agent's lifecycle to extend behavior.
+     */
+    async use(plugin: ZenPlugin): Promise<this> {
+        this.plugins.push(plugin);
+        if (plugin.install) {
+            await plugin.install(this);
+        }
+        return this;
+    }
+
+    /**
      * Run the agent's main loop until the goal is reached or maxSteps is hit.
      */
     async run(): Promise<void> {
@@ -158,6 +175,12 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
 
         try {
             while (this.running && this.stepCount < this.maxSteps) {
+                // Plugin: beforeObserve
+                const ctx = this.getPluginContext();
+                for (const p of this.plugins) {
+                    if (p.hooks.beforeObserve) await p.hooks.beforeObserve(ctx);
+                }
+
                 // 1. Capture the present moment (L1: MindfulObserver)
                 this.snapshot = await this.snapshotFn();
                 this.lastObservation = {
@@ -186,6 +209,20 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                 if (this.delta.isComplete) {
                     break;
                 }
+
+                // Plugin: afterDelta (can veto)
+                let vetoed = false;
+                for (const p of this.plugins) {
+                    if (p.hooks.afterDelta) {
+                        const result = await p.hooks.afterDelta(this.getPluginContext(), this.delta);
+                        if (result && typeof result === "object" && "vetoed" in result && result.vetoed) {
+                            this.emit("plugin:veto", { plugin: p.name, reason: result.reason });
+                            vetoed = true;
+                            break;
+                        }
+                    }
+                }
+                if (vetoed) continue; // Skip to next iteration
 
                 // 4. Check milestone
                 if (this.milestoneRunner && !this.milestoneRunner.isComplete) {
@@ -225,6 +262,11 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                     result,
                     step: this.stepCount,
                 });
+
+                // Plugin: afterAction
+                for (const p of this.plugins) {
+                    if (p.hooks.afterAction) await p.hooks.afterAction(this.getPluginContext(), action, result);
+                }
 
                 // 6a. Update self-model (Phase 4: Anatta)
                 this.updateSelfModel(action.toolName, result.success);
@@ -268,6 +310,12 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
         } catch (error) {
             const err = error instanceof Error ? error : new Error(String(error));
             this.emit("agent:error", { error: err, step: this.stepCount });
+            // Plugin: onError
+            for (const p of this.plugins) {
+                if (p.hooks.onError) {
+                    try { await p.hooks.onError(this.getPluginContext(), err); } catch { /* swallow */ }
+                }
+            }
             throw err;
         } finally {
             this.running = false;
@@ -944,6 +992,13 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
             this.applyEvolution(record);
             this.selfModel.evolutionLog.push(record);
             this.emit("anatta:evolved", record);
+
+            // Plugin: onEvolution
+            for (const p of this.plugins) {
+                if (p.hooks.onEvolution) {
+                    try { await p.hooks.onEvolution(this.getPluginContext(), record); } catch { /* swallow */ }
+                }
+            }
         } catch {
             // Silently skip evolution if LLM fails
         }
@@ -1006,6 +1061,17 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                 }
             }
         }
+    }
+
+    /** Build a PluginContext from the current agent state. */
+    private getPluginContext(): PluginContext {
+        return {
+            goal: this.goal,
+            snapshot: this.snapshot,
+            delta: this.delta,
+            selfModel: this.selfModel,
+            stepCount: this.stepCount,
+        };
     }
 
     /** Get the current self-model (for external inspection / testing). */

@@ -417,6 +417,14 @@ export interface ZenAgentEvents {
 
     /** Emitted when the agent evolves its own behavior. */
     "anatta:evolved": SelfEvolutionRecord;
+
+    // --- Plugin Events (M3) ---
+
+    /** Emitted when a plugin vetoes an action. */
+    "plugin:veto": {
+        plugin: string;
+        reason: string;
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -506,3 +514,74 @@ export interface SelfEvolutionProposal {
     confidence: number;
 }
 
+// ============================================================================
+// Plugin System (六波羅蜜多 SDK Layers)
+// ============================================================================
+
+/** Context passed to plugin hooks — provides read access to agent state. */
+export interface PluginContext {
+    /** The agent's goal. */
+    goal: Goal;
+    /** Current snapshot. */
+    snapshot: Snapshot;
+    /** Current delta (null before first computation). */
+    delta: Delta | null;
+    /** Current self-model (read-only). */
+    selfModel: Readonly<SelfModel>;
+    /** Current step count. */
+    stepCount: number;
+}
+
+/** Lifecycle hooks available to plugins. All hooks are optional. */
+export interface ZenPluginHooks {
+    /**
+     * Called before each observation (snapshot capture).
+     * Can modify or enrich the context before observation.
+     */
+    beforeObserve?(ctx: PluginContext): void | Promise<void>;
+
+    /**
+     * Called after delta computation and before decide().
+     * Can veto an action by returning `{ vetoed: true, reason: string }`.
+     */
+    afterDelta?(ctx: PluginContext, delta: Delta): void | { vetoed: true; reason: string } | Promise<void | { vetoed: true; reason: string }>;
+
+    /**
+     * Called before the LLM decision, can inject additional prompt sections.
+     * Return an array of strings to append to the system prompt.
+     */
+    beforeDecide?(ctx: PluginContext): string[] | Promise<string[]>;
+
+    /**
+     * Called after a tool is executed with its result.
+     * Can record metrics, trigger side effects, etc.
+     */
+    afterAction?(ctx: PluginContext, action: Action, result: ToolResult): void | Promise<void>;
+
+    /**
+     * Called when self-evolution occurs.
+     */
+    onEvolution?(ctx: PluginContext, record: SelfEvolutionRecord): void | Promise<void>;
+
+    /**
+     * Called when an error occurs during the run loop.
+     */
+    onError?(ctx: PluginContext, error: Error): void | Promise<void>;
+}
+
+/**
+ * ZenPlugin — the extension point for the Six Perfections (六波羅蜜多).
+ *
+ * Each SDK layer (ethics, resilience, focus, self-learning, wisdom, knowledge-share)
+ * implements this interface to hook into the agent's lifecycle.
+ */
+export interface ZenPlugin {
+    /** Unique plugin name (e.g., "sila", "prajna", "dana"). */
+    name: string;
+    /** Human-readable description. */
+    description?: string;
+    /** Lifecycle hooks. */
+    hooks: ZenPluginHooks;
+    /** Optional: called once when plugin is registered via .use(). */
+    install?(agent: unknown): void | Promise<void>;
+}
