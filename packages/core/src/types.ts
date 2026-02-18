@@ -673,3 +673,49 @@ export interface ToolSynthesisResult {
     error?: string;
 }
 
+// ============================================================================
+// Memory Hierarchy (般若 Prajna — Hierarchical Memory)
+// ============================================================================
+
+/** Memory layer type. */
+export type MemoryLayer = "working" | "episodic" | "semantic";
+
+/** A single memory entry in the hierarchical memory system. */
+export interface MemoryEntry {
+    /** Unique entry ID. */
+    id: string;
+    /** Which memory layer this entry belongs to. */
+    layer: MemoryLayer;
+    /** Content of the memory. */
+    content: string;
+    /** Structured metadata. */
+    metadata: Record<string, unknown>;
+    /** Relevance score (0-1, decays over time for working/episodic). */
+    relevance: number;
+    /** Number of times this memory has been accessed. */
+    accessCount: number;
+    /** Last accessed timestamp. */
+    lastAccessed: string;
+    /** Created timestamp. */
+    createdAt: string;
+}
+
+/**
+ * HierarchicalMemory — Interface for the 3-layer memory system.
+ *
+ * - Working:  Immediate context (current run, limited capacity)
+ * - Episodic: Session-level events (auto-promoted from working)
+ * - Semantic: Permanent knowledge (distilled from episodic)
+ */
+export interface HierarchicalMemory {
+    /** Store a memory in a specific layer. */
+    store(entry: Omit<MemoryEntry, "id" | "createdAt" | "lastAccessed" | "accessCount">): Promise<string>;
+    /** Retrieve memories by query, optionally filtering by layer. */
+    retrieve(query: string, layer?: MemoryLayer, topK?: number): Promise<MemoryEntry[]>;
+    /** Promote a memory from a lower layer to a higher one. */
+    promote(entryId: string, targetLayer: MemoryLayer): Promise<boolean>;
+    /** Consolidate: move important working memories to episodic, episodic to semantic. */
+    consolidate(): Promise<{ promoted: number; decayed: number }>;
+    /** Get memory statistics. */
+    stats(): { working: number; episodic: number; semantic: number };
+}

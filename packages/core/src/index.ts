@@ -45,6 +45,9 @@ export type {
     DanaProtocol,
     ToolBlueprint,
     ToolSynthesisResult,
+    MemoryLayer,
+    MemoryEntry,
+    HierarchicalMemory,
 } from "./types.js";
 
 // Classes
