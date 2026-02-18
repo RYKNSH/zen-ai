@@ -236,7 +236,7 @@ export class ZenDiscordBot {
         await interaction.reply("🧘 エージェント止めたよ");
     }
 
-    /** Handle /zen status. */
+    /** Handle /zen status — now with Buddhist AI metrics. */
     private async handleStatus(
         interaction: ChatInputCommandInteraction,
     ): Promise<void> {
@@ -251,13 +251,20 @@ export class ZenDiscordBot {
 
         const agent = this.agents.get(contextId)!;
         const state = agent.getState();
-        const progress = state.delta
-            ? `${Math.round(state.delta.progress * 100)}%`
-            : "計測中";
 
-        await interaction.reply(
-            `🎯 ゴール: ${state.goal}\n📊 進捗: ${progress}\n🔢 ステップ: ${state.stepCount}`,
-        );
+        // Use import at top — need to add this import
+        const { agentStatusEmbed } = await import("./formatters/embed-builder.js");
+
+        const embed = agentStatusEmbed({
+            goal: state.goal,
+            stepCount: state.stepCount,
+            delta: state.delta ?? undefined,
+            currentMilestoneIndex: state.currentMilestoneIndex,
+            running: true,
+            buddhistMetrics: state.buddhistMetrics,
+        });
+
+        await interaction.reply({ embeds: [embed] });
     }
 
     /** Handle /zen pause. */

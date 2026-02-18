@@ -141,15 +141,22 @@ export function agentCompleteEmbed(
     return embed;
 }
 
-/** Create an embed for agent status. */
+/** Create an embed for agent status with Buddhist AI metrics. */
 export function agentStatusEmbed(state: {
     goal: Goal;
     stepCount: number;
     delta?: Delta;
     currentMilestoneIndex?: number;
     running: boolean;
+    buddhistMetrics?: {
+        sufferingDelta?: number;
+        egoNoise?: number;
+        tanhaLoopDetected: boolean;
+        karmaCount: number;
+        userInstructionCount: number;
+    };
 }): EmbedBuilder {
-    return new EmbedBuilder()
+    const embed = new EmbedBuilder()
         .setTitle("📊 Agent Status")
         .setColor(state.running ? COLORS.action : COLORS.reset)
         .addFields(
@@ -174,6 +181,63 @@ export function agentStatusEmbed(state: {
             },
         )
         .setTimestamp();
+
+    // --- Buddhist AI Metrics ---
+    if (state.buddhistMetrics) {
+        const m = state.buddhistMetrics;
+        const sufferingBar = makeSufferingBar(m.sufferingDelta);
+        const egoBar = makeSufferingBar(m.egoNoise);
+
+        embed.addFields(
+            {
+                name: "🧘 苦 (Suffering)",
+                value: m.sufferingDelta != null
+                    ? `${sufferingBar} ${m.sufferingDelta.toFixed(2)}`
+                    : "計測中...",
+                inline: true,
+            },
+            {
+                name: "👁️ 我執 (Ego)",
+                value: m.egoNoise != null
+                    ? `${egoBar} ${m.egoNoise.toFixed(2)}`
+                    : "計測中...",
+                inline: true,
+            },
+            {
+                name: "🔄 渇愛ループ",
+                value: m.tanhaLoopDetected ? "⚠️ 検出" : "✅ 正常",
+                inline: true,
+            },
+            {
+                name: "☸️ 業 (Karma)",
+                value: `${m.karmaCount} entries`,
+                inline: true,
+            },
+            {
+                name: "📝 指示回数",
+                value: `${m.userInstructionCount}回`,
+                inline: true,
+            },
+        );
+
+        embed.setFooter({
+            text: m.tanhaLoopDetected
+                ? "⚠️ Tanha Loop detected — 同じ失敗を繰り返している"
+                : "苦を観察し、執着を手放し、覚醒へ",
+        });
+    } else {
+        embed.setFooter({ text: "Don't accumulate. Perceive now." });
+    }
+
+    return embed;
+}
+
+/** Create a visual bar for suffering / ego levels. */
+function makeSufferingBar(value?: number): string {
+    if (value == null) return "░░░░░░░░░░";
+    const clamped = Math.max(0, Math.min(1, value));
+    const filled = Math.round(clamped * 10);
+    return "█".repeat(filled) + "░".repeat(10 - filled);
 }
 
 /** Create an error embed. */

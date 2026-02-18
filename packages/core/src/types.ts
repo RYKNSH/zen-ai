@@ -414,4 +414,17 @@ export interface AgentState {
     failures: FailureEntry[];
     startedAt: string;
     lastUpdatedAt: string;
+    /** Buddhist AI suffering metrics (Phase 0.5+). */
+    buddhistMetrics?: {
+        /** Current suffering delta (higher = more suffering). */
+        sufferingDelta?: number;
+        /** Current ego noise level (0-1). */
+        egoNoise?: number;
+        /** Whether a Tanha (craving) loop has been detected. */
+        tanhaLoopDetected: boolean;
+        /** Number of karma entries stored. */
+        karmaCount: number;
+        /** Proxy metric for suffering: number of user instructions (corrections). */
+        userInstructionCount: number;
+    };
 }

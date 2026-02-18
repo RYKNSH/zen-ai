@@ -73,6 +73,9 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
     // --- Phase 2: Causal graph state ---
     private recentActions: Array<{ id: string; toolName: string; success: boolean; step: number }> = [];
 
+    // --- Phase M1: User instruction count as suffering proxy ---
+    private userInstructionCount = 0;
+
     // --- Phase 3: Seven Factors state ---
     private awakeningEnabled = false;
 
@@ -252,6 +255,13 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
             failures: this.failureDB?.exportCurrent() ?? [],
             startedAt: new Date().toISOString(),
             lastUpdatedAt: new Date().toISOString(),
+            buddhistMetrics: {
+                sufferingDelta: this.delta?.sufferingDelta,
+                egoNoise: this.delta?.egoNoise,
+                tanhaLoopDetected: this.tanhaLoopDetected,
+                karmaCount: this.recentActions.filter(a => !a.success).length,
+                userInstructionCount: this.userInstructionCount ?? 0,
+            },
         };
     }
 

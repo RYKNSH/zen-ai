@@ -115,8 +115,26 @@ export async function handleZenRun(
         send(`📝 学んだ: "${proverb}" — ${condition}`);
     });
 
-    agent.on("context:reset", () => {
-        send("🔄 コンテキストリセットしたよ、続けるね");
+    // --- Buddhist AI event handlers ---
+    agent.on("karma:stored", ({ karmaType, causalChain }) => {
+        const chainStr = causalChain.length > 0 ? ` (因果: ${causalChain.join(" → ")})` : "";
+        send(`☸️ 業を記録: ${karmaType}${chainStr}`);
+    });
+
+    agent.on("tanha:loop:detected", ({ pattern }) => {
+        send(`⚠️ 渇愛ループ検出: "${pattern}" — 執着を手放し、別のアプローチを模索中`);
+    });
+
+    agent.on("dukkha:evaluated", ({ sufferingDelta, egoNoise }) => {
+        if (sufferingDelta != null && sufferingDelta > 0.5) {
+            send(`🧘 苦レベル高: ${sufferingDelta.toFixed(2)} / Ego: ${(egoNoise ?? 0).toFixed(2)}`);
+        }
+    });
+
+    agent.on("awakening:stage", ({ stage, confidence }) => {
+        if (stage === "equanimity") {
+            send(`🪷 覚醒判断完了 (confidence: ${(confidence ?? 0).toFixed(2)})`);
+        }
     });
 
     await interaction.followUp(`🧘 「${goal}」に取り掛かるよ`);
