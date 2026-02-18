@@ -1,0 +1,19 @@
+{
+    "name": "@zen-ai/plugin-dana",
+    "version": "0.1.0",
+    "description": "Dana (布施) — Knowledge sharing plugin for ZEN AI agents",
+    "type": "module",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "clean": "rm -rf dist"
+    },
+    "dependencies": {
+        "@zen-ai/core": "workspace:*"
+    },
+    "devDependencies": {
+        "typescript": "^5.7.0"
+    },
+    "license": "MIT"
+}

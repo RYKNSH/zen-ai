@@ -40,6 +40,9 @@ export type {
     ZenPlugin,
     ZenPluginHooks,
     PluginContext,
+    KnowledgeGift,
+    KnowledgePacket,
+    DanaProtocol,
 } from "./types.js";
 
 // Classes

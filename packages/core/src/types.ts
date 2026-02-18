@@ -585,3 +585,58 @@ export interface ZenPlugin {
     /** Optional: called once when plugin is registered via .use(). */
     install?(agent: unknown): void | Promise<void>;
 }
+
+// ============================================================================
+// Dana Protocol (布施 — Knowledge Sharing Between Agents)
+// ============================================================================
+
+/** A unit of knowledge that can be shared between agents. */
+export interface KnowledgeGift {
+    /** Unique gift identifier. */
+    id: string;
+    /** Type of knowledge being shared. */
+    type: "strategy" | "warning" | "skill" | "insight";
+    /** Human-readable description. */
+    description: string;
+    /** The knowledge payload (JSON-serializable). */
+    payload: Record<string, unknown>;
+    /** Confidence in this knowledge (0-1). */
+    confidence: number;
+    /** Context in which this knowledge was learned. */
+    sourceContext: string;
+}
+
+/**
+ * KnowledgePacket — A bundle of knowledge from one agent to another.
+ *
+ * This is the atomic unit of the Dana (布施) protocol.
+ * It encapsulates everything an agent has learned that could benefit another.
+ */
+export interface KnowledgePacket {
+    /** Packet version for forward-compatibility. */
+    version: 1;
+    /** ID of the source agent. */
+    sourceAgentId: string;
+    /** Timestamp of packet creation. */
+    createdAt: string;
+    /** Knowledge gifts in this packet. */
+    gifts: KnowledgeGift[];
+    /** Source agent's active strategies at time of export. */
+    strategies: ActiveStrategies;
+    /** Summary of source agent's evolution history. */
+    evolutionSummary: string[];
+}
+
+/**
+ * DanaProtocol — Interface for knowledge exchange transport.
+ *
+ * Implementations can use file system, network, or shared memory.
+ */
+export interface DanaProtocol {
+    /** Export knowledge from this agent. */
+    exportPacket(agent: { getSelfModel(): Readonly<SelfModel>; goal: Goal }): KnowledgePacket;
+    /** Import knowledge from another agent's packet. */
+    importPacket(packet: KnowledgePacket): KnowledgeGift[];
+    /** Merge imported knowledge into agent's active strategies. */
+    mergeStrategies(current: ActiveStrategies, incoming: ActiveStrategies): ActiveStrategies;
+}
