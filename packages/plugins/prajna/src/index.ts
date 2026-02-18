@@ -353,6 +353,9 @@ export function createPrajnaPlugin(config: PrajnaConfig = {}): ZenPlugin {
                 metrics.decayed += result.decayed;
                 metrics.consolidations++;
                 stepsSinceConsolidation = 0;
+
+                // Auto-save after consolidation
+                memoryStore.save();
             }
         },
 

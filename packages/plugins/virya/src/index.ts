@@ -23,14 +23,29 @@ import type {
     Tool,
     ToolResult,
     ToolBlueprint,
-    ToolSynthesisResult,
     Delta,
     LLMAdapter,
-    ParameterSchema,
 } from "@zen-ai/core";
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+
+// Security denylist for synthesized tool implementations
+const DENYLIST_PATTERNS = [
+    /\bprocess\b/,
+    /\brequire\b/,
+    /\bimport\b/,
+    /\beval\b/,
+    /\bFunction\b/,
+    /\bfetch\b/,
+    /\bXMLHttpRequest\b/,
+    /\bglobalThis\b/,
+    /\b__dirname\b/,
+    /\b__filename\b/,
+    /\bchild_process\b/,
+    /\bexecSync\b/,
+    /\bspawnSync\b/,
+];
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -75,6 +90,15 @@ export interface ViryaMetrics {
  * The implementation is evaluated in a restricted scope with JSON I/O.
  */
 function createToolFromBlueprint(blueprint: ToolBlueprint): Tool {
+    // Security check: reject implementations containing dangerous patterns
+    for (const pattern of DENYLIST_PATTERNS) {
+        if (pattern.test(blueprint.implementation)) {
+            throw new Error(
+                `Synthesized tool "${blueprint.name}" rejected: implementation contains forbidden pattern ${pattern}`,
+            );
+        }
+    }
+
     return {
         name: blueprint.name,
         description: blueprint.description,
@@ -90,7 +114,13 @@ function createToolFromBlueprint(blueprint: ToolBlueprint): Tool {
                         ${blueprint.implementation}
                     })();`,
                 );
-                const result = await fn(params);
+                // Timeout protection: 5 second limit
+                const result = await Promise.race([
+                    fn(params),
+                    new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error("Tool execution timed out (5s)")), 5000),
+                    ),
+                ]);
                 return {
                     success: true,
                     output: result ?? "Tool executed successfully",
@@ -120,8 +150,7 @@ function saveBlueprintToDisk(dir: string, blueprint: ToolBlueprint): void {
 
 function loadBlueprintsFromDisk(dir: string): ToolBlueprint[] {
     if (!existsSync(dir)) return [];
-    const { readdirSync } = require("node:fs") as typeof import("node:fs");
-    const files = readdirSync(dir).filter((f: string) => f.endsWith(".json"));
+    const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
     const blueprints: ToolBlueprint[] = [];
     for (const file of files) {
         try {

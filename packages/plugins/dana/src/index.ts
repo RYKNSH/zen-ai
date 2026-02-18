@@ -31,7 +31,7 @@ import type {
 } from "@zen-ai/core";
 
 import { randomUUID } from "node:crypto";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -158,8 +158,7 @@ function writePacket(dir: string, packet: KnowledgePacket): void {
 
 function readPackets(dir: string): KnowledgePacket[] {
     if (!existsSync(dir)) return [];
-    const { readdirSync } = require("node:fs") as typeof import("node:fs");
-    const files = readdirSync(dir).filter((f: string) => f.startsWith("dana_") && f.endsWith(".json"));
+    const files = readdirSync(dir).filter((f) => f.startsWith("dana_") && f.endsWith(".json"));
     const packets: KnowledgePacket[] = [];
     for (const file of files) {
         try {
@@ -323,7 +322,3 @@ export function createDanaPlugin(config: DanaConfig): ZenPlugin {
     };
 }
 
-/** Get the current Dana metrics. */
-export function getDanaMetrics(): DanaMetrics | null {
-    return null; // Metrics are internal; use events for monitoring
-}
