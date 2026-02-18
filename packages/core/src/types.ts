@@ -199,6 +199,8 @@ export interface ZenAgentConfig {
     skillDB?: SkillDB;
     /** FailureKnowledgeDB instance (optional). */
     failureDB?: FailureDB;
+    /** KarmaMemoryDB instance (optional, Phase 1.5+). */
+    karmaMemoryDB?: KarmaMemoryDB;
 }
 
 // ---------------------------------------------------------------------------
@@ -280,6 +282,44 @@ export interface KarmaMemoryDB {
 }
 
 // ---------------------------------------------------------------------------
+// Causal Graph (Phase 2: Buddhist AI)
+// ---------------------------------------------------------------------------
+
+/** A causal link between two events/actions. */
+export interface CausalLink {
+    /** ID of the cause event. */
+    causeId: string;
+    /** ID of the effect event. */
+    effectId: string;
+    /** Strength of the causal relationship (0-1). */
+    strength: number;
+    /** LLM-inferred reasoning for the causal link. */
+    reasoning: string;
+}
+
+// ---------------------------------------------------------------------------
+// Seven Factors of Awakening (Phase 3: Buddhist AI)
+// ---------------------------------------------------------------------------
+
+/** The seven stages of the awakening decision pipeline. */
+export type AwakeningStage =
+    | "investigation"  // 択法: hypothesis generation
+    | "mindfulness"    // 念: bias removal
+    | "energy"         // 精進: effort calibration
+    | "joy"            // 喜: intrinsic reward check
+    | "tranquility"    // 軽安: regularization
+    | "concentration"  // 定: causal focus
+    | "equanimity";    // 捨: letting go of outcome attachment
+
+/** Result of one stage in the seven-factor pipeline. */
+export interface AwakeningStageResult {
+    stage: AwakeningStage;
+    output: string;
+    confidence: number;
+    filtered: boolean;  // Whether this stage filtered out the previous output
+}
+
+// ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
 
@@ -337,6 +377,27 @@ export interface ZenAgentEvents {
         sufferingDelta: number;
         egoNoise: number;
     };
+
+    // --- Buddhist AI Events (Phase 1.5) ---
+
+    /** Emitted when karma is stored from a failure. */
+    "karma:stored": {
+        karmaId: string;
+        karmaType: KarmaType;
+        causalChain: string[];
+    };
+
+    // --- Buddhist AI Events (Phase 2) ---
+
+    /** Emitted when causal analysis is performed. */
+    "causal:analyzed": {
+        links: CausalLink[];
+    };
+
+    // --- Buddhist AI Events (Phase 3) ---
+
+    /** Emitted when an awakening stage is completed during decide(). */
+    "awakening:stage": AwakeningStageResult;
 }
 
 // ---------------------------------------------------------------------------

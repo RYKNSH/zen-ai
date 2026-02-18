@@ -6,18 +6,21 @@
 import { TypedEventEmitter } from "./event-emitter.js";
 import { MilestoneRunner } from "./milestone-runner.js";
 import type {
-    ZenAgentConfig,
-    ZenAgentEvents,
-    Goal,
-    Snapshot,
-    Observation,
-    Delta,
     Action,
+    Delta,
+    Goal,
+    Observation,
+    Snapshot,
     Tool,
     ToolResult,
-    AgentState,
     ChatMessage,
     LLMToolDefinition,
+    ZenAgentConfig,
+    ZenAgentEvents,
+    AgentState,
+    CausalLink,
+    AwakeningStageResult,
+    KarmaType,
 } from "./types.js";
 
 /** Default snapshot when none is provided. */
@@ -49,6 +52,7 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
     private readonly tools: Map<string, Tool>;
     private readonly skillDB: ZenAgentConfig["skillDB"];
     private readonly failureDB: ZenAgentConfig["failureDB"];
+    private readonly karmaMemoryDB: ZenAgentConfig["karmaMemoryDB"];
 
     // --- Settings ---
     private readonly maxSteps: number;
@@ -66,6 +70,12 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
     /** True if a craving loop (渇愛ループ) has been detected. */
     private tanhaLoopDetected = false;
 
+    // --- Phase 2: Causal graph state ---
+    private recentActions: Array<{ id: string; toolName: string; success: boolean; step: number }> = [];
+
+    // --- Phase 3: Seven Factors state ---
+    private awakeningEnabled = false;
+
     constructor(config: ZenAgentConfig) {
         super();
 
@@ -79,8 +89,12 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
         this.snapshotFn = config.snapshot ?? (() => ({}));
         this.skillDB = config.skillDB;
         this.failureDB = config.failureDB;
+        this.karmaMemoryDB = config.karmaMemoryDB;
         this.maxSteps = config.maxSteps ?? DEFAULT_MAX_STEPS;
         this.maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
+
+        // Enable Seven Factors pipeline if karmaMemoryDB is provided
+        this.awakeningEnabled = !!config.karmaMemoryDB;
 
         // Tools
         this.tools = new Map();
@@ -167,8 +181,10 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                     }
                 }
 
-                // 5. Decide next action
-                const action = await this.decide();
+                // 5. Decide next action (Phase 3: Seven Factors pipeline if enabled)
+                const action = this.awakeningEnabled
+                    ? await this.decideWithAwakening()
+                    : await this.decide();
                 if (!action) break;
 
                 this.stepCount++;
@@ -182,10 +198,28 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                     step: this.stepCount,
                 });
 
+                // 6b. Track action for causal analysis (Phase 2)
+                this.recentActions.push({
+                    id: `action_${this.stepCount}`,
+                    toolName: action.toolName,
+                    success: result.success,
+                    step: this.stepCount,
+                });
+
+                // 6c. Causal analysis (Phase 2) — analyze cause-effect after each step
+                if (this.karmaMemoryDB && this.recentActions.length >= 2) {
+                    await this.analyzeCausality();
+                }
+
                 // 7. Record failure if tool failed
-                if (!result.success && this.failureDB) {
+                if (!result.success && (this.failureDB || this.karmaMemoryDB)) {
                     await this.recordFailure(action, result);
                 }
+            }
+
+            // Apply impermanence (無常) at end of run (Phase 1.5)
+            if (this.karmaMemoryDB) {
+                await this.karmaMemoryDB.applyImpermanence();
             }
 
             this.emit("agent:complete", {
@@ -443,29 +477,290 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
         action: Action,
         result: ToolResult,
     ): Promise<void> {
-        if (!this.failureDB) return;
-
         const proverb = `Avoid using ${action.toolName} with these parameters when ${result.error}`;
         const condition = `When attempting: ${action.reasoning ?? action.toolName}`;
 
-        await this.failureDB.store({
-            id: `fk_${Date.now()}`,
-            proverb,
-            condition,
-            severity: "MEDIUM",
-            source: `step_${this.stepCount}`,
-        });
+        // Store to FailureDB if available
+        if (this.failureDB) {
+            await this.failureDB.store({
+                id: `fk_${Date.now()}`,
+                proverb,
+                condition,
+                severity: "MEDIUM",
+                source: `step_${this.stepCount}`,
+            });
+        }
 
         this.emit("failure:recorded", { proverb, condition });
 
         // --- Tanha Loop Detection (渇愛ループ検出) ---
-        // Same tool + same error pattern repeating = craving loop
         const patternKey = `${action.toolName}:${result.error ?? "unknown"}`;
         const count = (this.failurePatternCounts.get(patternKey) ?? 0) + 1;
         this.failurePatternCounts.set(patternKey, count);
         if (count >= 3) {
             this.tanhaLoopDetected = true;
         }
+
+        // --- Phase 1.5: Store to KarmaMemory ---
+        if (this.karmaMemoryDB) {
+            const karmaType: KarmaType = count >= 3 ? "unskillful" : count >= 2 ? "neutral" : "unskillful";
+            const causalChain = this.recentActions
+                .filter(a => !a.success)
+                .map(a => a.id)
+                .slice(-5);
+
+            const karmaId = `karma_${Date.now()}`;
+            await this.karmaMemoryDB.store({
+                id: karmaId,
+                proverb,
+                condition,
+                severity: count >= 3 ? "HIGH" : "MEDIUM",
+                source: `step_${this.stepCount}`,
+                causalChain,
+                transferWeight: Math.min(1.0, 0.3 + count * 0.1),
+                karmaType,
+                occurrences: 1,
+                lastSeen: new Date().toISOString(),
+            });
+
+            this.emit("karma:stored", { karmaId, karmaType, causalChain });
+        }
+    }
+
+    // =========================================================================
+    // Phase 2: Causal Analysis (LLM-powered)
+    // =========================================================================
+
+    /**
+     * Analyze causal relationships between recent actions using LLM.
+     * Infers which actions caused which outcomes.
+     */
+    private async analyzeCausality(): Promise<void> {
+        if (this.recentActions.length < 2) return;
+
+        const last = this.recentActions[this.recentActions.length - 1];
+        const prev = this.recentActions[this.recentActions.length - 2];
+
+        // Only analyze when something failed after a previous action
+        if (last.success) return;
+
+        const prompt = [
+            "## Causal Analysis",
+            `Previous action: ${prev.toolName} (${prev.success ? "success" : "failure"})`,
+            `Current action: ${last.toolName} (failure)`,
+            "",
+            "Did the previous action likely CAUSE the current failure?",
+            'Respond in JSON: {"isCausal": true/false, "strength": 0.0-1.0, "reasoning": "..."}',
+        ].join("\n");
+
+        try {
+            const response = await this.retryLLM(() => this.llm.complete(prompt));
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                if (parsed.isCausal) {
+                    const link: CausalLink = {
+                        causeId: prev.id,
+                        effectId: last.id,
+                        strength: Number(parsed.strength ?? 0.5),
+                        reasoning: String(parsed.reasoning ?? ""),
+                    };
+                    this.emit("causal:analyzed", { links: [link] });
+
+                    // Update karma causal chain if available
+                    if (this.karmaMemoryDB) {
+                        const karmaEntries = await this.karmaMemoryDB.retrieve(last.toolName, 1);
+                        if (karmaEntries.length > 0) {
+                            const existing = karmaEntries[0];
+                            const updatedChain = [...new Set([...existing.causalChain, prev.id])];
+                            await this.karmaMemoryDB.store({
+                                ...existing,
+                                causalChain: updatedChain,
+                            });
+                        }
+                    }
+                }
+            }
+        } catch {
+            // Causal analysis is best-effort, don't fail the run
+        }
+    }
+
+    // =========================================================================
+    // Phase 3: Seven Factors of Awakening Pipeline
+    // =========================================================================
+
+    /**
+     * Decide with the Seven Factors of Awakening pipeline.
+     * Each factor acts as a processing stage that refines the decision.
+     *
+     * 1. 択法 (Investigation): Generate hypotheses
+     * 2. 念 (Mindfulness): Remove bias
+     * 3. 精進 (Energy): Calibrate effort level
+     * 4. 喜 (Joy): Check intrinsic reward
+     * 5. 軽安 (Tranquility): Regularize / simplify
+     * 6. 定 (Concentration): Focus on causal structure
+     * 7. 捨 (Equanimity): Let go of attachment to outcome
+     */
+    private async decideWithAwakening(): Promise<Action | null> {
+        if (!this.delta) return null;
+
+        // Retrieve karma wisdom (Phase 1.5)
+        const karmaWisdom = this.karmaMemoryDB
+            ? await this.karmaMemoryDB.retrieve(this.delta.description, 3)
+            : [];
+        const habitualPatterns = this.karmaMemoryDB
+            ? await this.karmaMemoryDB.getHabitualPatterns(3)
+            : [];
+
+        // Stage 1: 択法 (Investigation) — Generate hypotheses using all knowledge
+        const skills = this.skillDB
+            ? await this.skillDB.retrieve(this.delta.description, 3)
+            : [];
+        const warnings = this.failureDB
+            ? await this.failureDB.retrieve(this.delta.description, 3)
+            : [];
+
+        const investigationPrompt = [
+            "## Stage 1: 択法 (Investigation)",
+            "Generate 2-3 possible approaches to address the current gap.",
+            "",
+            `Goal: ${this.goal.description}`,
+            `Delta: ${this.delta.description}`,
+            `Progress: ${(this.delta.progress * 100).toFixed(0)}%`,
+            `Gaps: ${this.delta.gaps.join(", ")}`,
+            "",
+            skills.length > 0
+                ? `Relevant Skills: ${skills.map(s => s.command).join("; ")}`
+                : "",
+            warnings.length > 0
+                ? `⚠️ Failure Warnings: ${warnings.map(w => w.proverb).join("; ")}`
+                : "",
+            karmaWisdom.length > 0
+                ? `🔮 Karma Wisdom: ${karmaWisdom.map(k => `"${k.proverb}" (weight: ${k.transferWeight.toFixed(1)}, seen ${k.occurrences}x)`).join("; ")}`
+                : "",
+            habitualPatterns.length > 0
+                ? `⚠️ Habitual Patterns (渇愛候補): ${habitualPatterns.map(h => h.proverb).join("; ")}`
+                : "",
+            "",
+            'Respond in JSON: {"hypotheses": ["approach 1", "approach 2"]}',
+        ].filter(Boolean).join("\n");
+
+        const investigationResp = await this.retryLLM(() => this.llm.complete(investigationPrompt));
+        this.emit("awakening:stage", {
+            stage: "investigation",
+            output: investigationResp,
+            confidence: 0.7,
+            filtered: false,
+        });
+
+        // Stage 2: 念 (Mindfulness) — Remove bias from hypotheses
+        const mindfulnessPrompt = [
+            "## Stage 2: 念 (Mindfulness) — Bias Removal",
+            `Bias Score: ${this.lastObservation?.biasScore ?? 0}`,
+            `Tanha Loop Active: ${this.tanhaLoopDetected}`,
+            "",
+            "Review these hypotheses and REMOVE any that:",
+            "- Repeat a pattern that has already failed (渇愛)",
+            "- Are driven by ego/self-preservation rather than goal-service",
+            "- Show confirmation bias (trying to prove previous approach was right)",
+            "",
+            `Hypotheses: ${investigationResp}`,
+            "",
+            'Respond in JSON: {"filtered": ["surviving approach"], "removed": ["removed approach"], "reasoning": "..."}',
+        ].join("\n");
+
+        const mindfulnessResp = await this.retryLLM(() => this.llm.complete(mindfulnessPrompt));
+        this.emit("awakening:stage", {
+            stage: "mindfulness",
+            output: mindfulnessResp,
+            confidence: 0.8,
+            filtered: true,
+        });
+
+        // Stages 3-7: Combined into final decision (energy + joy + tranquility + concentration + equanimity)
+        // These are combined to avoid excessive LLM calls while preserving the seven-factor structure
+        const toolDefs: LLMToolDefinition[] = Array.from(this.tools.values()).map(t => ({
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters,
+        }));
+
+        const finalDecisionPrompt: ChatMessage = {
+            role: "system",
+            content: [
+                "You are ZEN AI with Seven Factors of Awakening.",
+                "",
+                `## Goal: ${this.goal.description}`,
+                `## Delta: ${this.delta.description} (${(this.delta.progress * 100).toFixed(0)}%)`,
+                `## Gaps: ${this.delta.gaps.join(", ")}`,
+                "",
+                "## Awakening Pipeline Results",
+                `Investigation (択法): ${investigationResp}`,
+                `Mindfulness (念): ${mindfulnessResp}`,
+                "",
+                "## Remaining Factors (apply internally):",
+                "3. 精進 (Energy): Choose the approach that requires MINIMUM effort for MAXIMUM progress",
+                "4. 喜 (Joy): Prefer approaches that make the system MORE elegant, not just functional",
+                "5. 軽安 (Tranquility): Prefer the SIMPLEST approach. Avoid over-engineering",
+                "6. 定 (Concentration): Focus on the ROOT CAUSE, not symptoms",
+                "7. 捨 (Equanimity): Do not cling to previous approaches. Choose freely",
+                "",
+                this.delta.sufferingDelta !== undefined
+                    ? `Suffering Delta: ${this.delta.sufferingDelta} (negative = good)`
+                    : "",
+                this.delta.egoNoise !== undefined
+                    ? `Ego Noise: ${this.delta.egoNoise}`
+                    : "",
+                "",
+                "Choose the most appropriate tool. If complete, respond: DONE",
+            ].filter(Boolean).join("\n"),
+        };
+
+        const recentHistory = this.chatHistory.slice(-6);
+        const messages: ChatMessage[] = [finalDecisionPrompt, ...recentHistory];
+
+        const response = await this.retryLLM(() =>
+            this.llm.chat(messages, { tools: toolDefs.length > 0 ? toolDefs : undefined }),
+        );
+
+        this.emit("awakening:stage", {
+            stage: "equanimity",
+            output: response.content ?? "tool_call",
+            confidence: 0.9,
+            filtered: false,
+        });
+
+        // Parse response (same as regular decide)
+        if (
+            response.content?.trim().toUpperCase() === "DONE" ||
+            (!response.toolCalls?.length && !response.content)
+        ) {
+            return null;
+        }
+
+        if (response.toolCalls?.length) {
+            const tc = response.toolCalls[0];
+            const action: Action = {
+                toolName: tc.name,
+                parameters: tc.arguments,
+                reasoning: response.content ?? undefined,
+            };
+            this.chatHistory.push({
+                role: "assistant",
+                content: response.content ?? `Using tool: ${tc.name}`,
+            });
+            return action;
+        }
+
+        if (response.content) {
+            this.chatHistory.push({
+                role: "assistant",
+                content: response.content,
+            });
+        }
+
+        return null;
     }
 
     /** Retry an LLM call with exponential backoff. */

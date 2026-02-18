@@ -30,6 +30,9 @@ export type {
     KarmaEntry,
     KarmaType,
     KarmaMemoryDB,
+    CausalLink,
+    AwakeningStage,
+    AwakeningStageResult,
 } from "./types.js";
 
 // Classes
