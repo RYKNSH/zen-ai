@@ -205,6 +205,8 @@ export interface ZenAgentConfig {
     failureDB?: FailureDB;
     /** KarmaMemoryDB instance (optional, Phase 1.5+). */
     karmaMemoryDB?: KarmaMemoryDB;
+    /** Path to persist the self-model JSON (enables growth across runs). */
+    selfModelPath?: string;
 }
 
 // ---------------------------------------------------------------------------

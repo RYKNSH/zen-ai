@@ -6,24 +6,27 @@
 import { TypedEventEmitter } from "./event-emitter.js";
 import { MilestoneRunner } from "./milestone-runner.js";
 import type {
-    Action,
-    Delta,
     Goal,
-    Observation,
     Snapshot,
+    Delta,
+    Action,
     Tool,
     ToolResult,
-    ChatMessage,
     LLMToolDefinition,
+    ChatMessage,
     ZenAgentConfig,
     ZenAgentEvents,
     AgentState,
+    Observation,
     CausalLink,
     AwakeningStageResult,
     KarmaType,
     SelfModel,
     SelfEvolutionRecord,
+    ActiveStrategies,
 } from "./types.js";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 
 /** Default snapshot when none is provided. */
 const DEFAULT_SNAPSHOT: Snapshot = {};
@@ -59,6 +62,8 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
     // --- Settings ---
     private readonly maxSteps: number;
     private readonly maxRetries: number;
+    /** Optional path for persisting SelfModel across runs. */
+    private readonly selfModelPath: string | null;
 
     // --- Runtime state ---
     private stepCount = 0;
@@ -109,6 +114,12 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
         this.karmaMemoryDB = config.karmaMemoryDB;
         this.maxSteps = config.maxSteps ?? DEFAULT_MAX_STEPS;
         this.maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
+        this.selfModelPath = config.selfModelPath ?? null;
+
+        // Load persisted self-model if path is configured
+        if (this.selfModelPath) {
+            this.loadSelfModel();
+        }
 
         // Enable Seven Factors pipeline if karmaMemoryDB is provided
         this.awakeningEnabled = !!config.karmaMemoryDB;
@@ -244,6 +255,11 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
 
             // Self-evolution check (Phase 4: Anatta)
             await this.evolveIfNeeded();
+
+            // Persist self-model (M2: growth survives across runs)
+            if (this.selfModelPath) {
+                this.saveSelfModel();
+            }
 
             this.emit("agent:complete", {
                 goal: this.goal,
@@ -995,5 +1011,48 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
     /** Get the current self-model (for external inspection / testing). */
     getSelfModel(): Readonly<SelfModel> {
         return this.selfModel;
+    }
+
+    /**
+     * Save SelfModel to disk (M2: Persistent Self-Model).
+     * Enables growth across runs — the agent remembers what it learned.
+     */
+    saveSelfModel(): void {
+        if (!this.selfModelPath) return;
+        try {
+            const dir = dirname(this.selfModelPath);
+            if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+            writeFileSync(this.selfModelPath, JSON.stringify(this.selfModel, null, 2), "utf-8");
+        } catch {
+            // Silently fail — persistence is best-effort
+        }
+    }
+
+    /**
+     * Load SelfModel from disk (M2: Persistent Self-Model).
+     * Restores previous learning when the agent starts a new run.
+     */
+    private loadSelfModel(): void {
+        if (!this.selfModelPath) return;
+        try {
+            if (existsSync(this.selfModelPath)) {
+                const raw = readFileSync(this.selfModelPath, "utf-8");
+                const loaded = JSON.parse(raw) as Partial<SelfModel>;
+                // Merge carefully — preserve structure, load data
+                if (loaded.toolStats) this.selfModel.toolStats = loaded.toolStats;
+                if (loaded.sufferingTrend) this.selfModel.sufferingTrend = loaded.sufferingTrend;
+                if (loaded.evolutionLog) this.selfModel.evolutionLog = loaded.evolutionLog;
+                if (loaded.activeStrategies) {
+                    const s = loaded.activeStrategies;
+                    this.selfModel.activeStrategies = {
+                        toolPreferences: s.toolPreferences ?? {},
+                        avoidPatterns: s.avoidPatterns ?? [],
+                        approachHints: s.approachHints ?? [],
+                    };
+                }
+            }
+        } catch {
+            // Silently fail — start fresh if file is corrupted
+        }
     }
 }
