@@ -1,0 +1,32 @@
+{
+    "name": "@zen-ai/discord",
+    "version": "1.1.0",
+    "description": "ZEN AI Discord Bot — Run autonomous agents from Discord",
+    "type": "module",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "bin": {
+        "zen-discord": "dist/index.js",
+        "zen-deploy-commands": "dist/deploy-commands.js"
+    },
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc --watch",
+        "start": "node dist/index.js",
+        "deploy-commands": "node dist/deploy-commands.js"
+    },
+    "dependencies": {
+        "@zen-ai/core": "workspace:*",
+        "@zen-ai/adapter-openai": "workspace:*",
+        "@zen-ai/memory": "workspace:*",
+        "@zen-ai/tools": "workspace:*",
+        "discord.js": "^14.16.0"
+    },
+    "license": "MIT"
+}

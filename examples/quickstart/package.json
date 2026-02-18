@@ -1,0 +1,16 @@
+{
+    "name": "@zen-ai/example-quickstart",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "ZEN AI Quickstart — 3 lines to run",
+    "scripts": {
+        "start": "npx tsx main.ts"
+    },
+    "dependencies": {
+        "@zen-ai/core": "workspace:*",
+        "@zen-ai/adapter-openai": "workspace:*",
+        "@zen-ai/memory": "workspace:*",
+        "@zen-ai/tools": "workspace:*"
+    }
+}

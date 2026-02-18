@@ -1,0 +1,20 @@
+ZEN AI is an open-source SDK for building autonomous AI agents.
+
+It uses a "Present-Moment" architecture inspired by Zen Buddhism and rocket guidance systems.
+The core idea is simple: rather than accumulating context over time (which leads to bloated, 
+hallucination-prone agents), ZEN AI agents focus only on three things:
+
+1. GOAL — The immutable destination
+2. Snapshot — The current state of the world
+3. Delta — The gap between Goal and Snapshot
+
+When a milestone is reached, the agent performs a "Context Reset" — discarding all chat 
+history and intermediate state. Only failure knowledge (in the form of "conditional proverbs") 
+survives the reset, ensuring the agent stays lightweight and focused.
+
+Key features:
+- Milestone-based context management
+- Failure-only memory (success is disposable, failure is universal)
+- LLM-agnostic design (works with OpenAI, Claude, Gemini, or local models)
+- Built-in tools (file, shell, HTTP)
+- Type-safe event system

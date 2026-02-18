@@ -1,0 +1,28 @@
+{
+    "name": "@zen-ai/cli",
+    "version": "1.0.0",
+    "description": "ZEN AI CLI — zen init / zen run / zen status",
+    "type": "module",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "bin": {
+        "zen": "dist/index.js"
+    },
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc --watch"
+    },
+    "dependencies": {
+        "@zen-ai/core": "workspace:*",
+        "@zen-ai/memory": "workspace:*",
+        "@zen-ai/adapter-openai": "workspace:*",
+        "@zen-ai/tools": "workspace:*"
+    },
+    "license": "MIT"
+}

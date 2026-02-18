@@ -1,0 +1,23 @@
+{
+    "name": "@zen-ai/adapter-openai",
+    "version": "1.0.0",
+    "description": "ZEN AI OpenAI Adapter — Function Calling support",
+    "type": "module",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc --watch"
+    },
+    "dependencies": {
+        "@zen-ai/core": "workspace:*",
+        "openai": "^4.80.0"
+    },
+    "license": "MIT"
+}

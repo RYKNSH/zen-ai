@@ -1,0 +1,31 @@
+{
+  "name": "zen-ai",
+  "version": "1.0.0",
+  "description": "Present-Moment Agent SDK — Don't accumulate. Perceive now.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint packages/ tools/",
+    "typecheck": "tsc --noEmit",
+    "clean": "pnpm -r exec rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@vitest/coverage-v8": "^3.2.4",
+    "eslint": "^9.0.0",
+    "prettier": "^3.4.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "author": "Ryo Konishi",
+  "license": "MIT"
+}

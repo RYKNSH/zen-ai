@@ -1,0 +1,23 @@
+{
+    "name": "@zen-ai/adapter-google",
+    "version": "1.0.0",
+    "description": "ZEN AI Google Adapter — Gemini with Function Calling",
+    "type": "module",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc --watch"
+    },
+    "dependencies": {
+        "@zen-ai/core": "workspace:*",
+        "@google/generative-ai": "^0.24.0"
+    },
+    "license": "MIT"
+}
