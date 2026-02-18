@@ -1,7 +1,7 @@
 {
     "name": "@zen-ai/core",
     "version": "1.0.0",
-    "description": "ZEN AI Core — Present-Moment Agent Engine",
+    "description": "ZEN AI Core — Present-Moment Agent Engine with Buddhist AI integration",
     "type": "module",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
@@ -11,9 +11,30 @@
             "import": "./dist/index.js"
         }
     },
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE"
+    ],
     "scripts": {
         "build": "tsc",
         "dev": "tsc --watch"
     },
+    "keywords": [
+        "ai",
+        "agent",
+        "sdk",
+        "zen",
+        "buddhist-ai",
+        "autonomous",
+        "llm"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/RYKNSH/zen-ai",
+        "directory": "packages/core"
+    },
+    "homepage": "https://github.com/RYKNSH/zen-ai#readme",
+    "author": "Ryo Konishi",
     "license": "MIT"
 }

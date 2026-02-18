@@ -1,7 +1,7 @@
 {
     "name": "@zen-ai/memory",
     "version": "1.0.0",
-    "description": "ZEN AI Memory — SkillDB & FailureKnowledgeDB with in-memory vector search",
+    "description": "ZEN AI Memory — SkillDB, FailureKnowledgeDB, KarmaMemory with in-memory vector search",
     "type": "module",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
@@ -11,6 +11,11 @@
             "import": "./dist/index.js"
         }
     },
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE"
+    ],
     "scripts": {
         "build": "tsc",
         "dev": "tsc --watch"
@@ -18,5 +23,20 @@
     "dependencies": {
         "@zen-ai/core": "workspace:*"
     },
+    "keywords": [
+        "ai",
+        "memory",
+        "rag",
+        "vector-search",
+        "karma",
+        "failure-knowledge"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/RYKNSH/zen-ai",
+        "directory": "packages/memory"
+    },
+    "homepage": "https://github.com/RYKNSH/zen-ai#readme",
+    "author": "Ryo Konishi",
     "license": "MIT"
 }
