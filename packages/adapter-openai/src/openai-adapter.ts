@@ -129,8 +129,23 @@ export class OpenAIAdapter implements LLMAdapter {
                 return { role: "system", content: msg.content };
             case "user":
                 return { role: "user", content: msg.content };
-            case "assistant":
-                return { role: "assistant", content: msg.content };
+            case "assistant": {
+                const assistantMsg: OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam = {
+                    role: "assistant",
+                    content: msg.content || null,
+                };
+                if (msg.toolCalls?.length) {
+                    assistantMsg.tool_calls = msg.toolCalls.map((tc) => ({
+                        id: tc.id,
+                        type: "function" as const,
+                        function: {
+                            name: tc.name,
+                            arguments: JSON.stringify(tc.arguments),
+                        },
+                    }));
+                }
+                return assistantMsg;
+            }
             case "tool":
                 return {
                     role: "tool",

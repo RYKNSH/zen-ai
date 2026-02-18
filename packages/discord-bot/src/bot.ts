@@ -10,7 +10,9 @@ import {
     REST,
     Routes,
     Events,
+    ChannelType,
     type ChatInputCommandInteraction,
+    type Message,
 } from "discord.js";
 import { ZenAgent } from "@zen-ai/core";
 import type { ZenAgentConfig, Tool, LLMAdapter } from "@zen-ai/core";
@@ -48,6 +50,8 @@ export class ZenDiscordBot {
     private client: Client;
     private agents: Map<string, ZenAgent> = new Map();
     private llmAdapters: Map<string, LLMAdapter> = new Map();
+    /** DM conversation history per user (userId → messages). */
+    private dmHistory: Map<string, Array<{ role: "user" | "assistant"; content: string }>> = new Map();
     private config: Required<
         Pick<ZenDiscordBotConfig, "maxStepsPerRun">
     > &
@@ -63,8 +67,9 @@ export class ZenDiscordBot {
             intents: [
                 GatewayIntentBits.Guilds,
                 GatewayIntentBits.DirectMessages,
+                GatewayIntentBits.MessageContent,
             ],
-            partials: [Partials.Channel],
+            partials: [Partials.Channel, Partials.Message],
         });
 
         this.setupEventHandlers();
@@ -212,6 +217,74 @@ export class ZenDiscordBot {
                         .reply({ content: msg, ephemeral: true })
                         .catch(console.error);
                 }
+            }
+        });
+
+        // --- Natural language DM handler ---
+        this.client.on(Events.MessageCreate, async (message: Message) => {
+            // Ignore bots and non-DM messages
+            if (message.author.bot) return;
+            if (message.channel.type !== ChannelType.DM) return;
+
+            const userId = message.author.id;
+            const userText = message.content.trim();
+            if (!userText) return;
+
+            try {
+                await message.channel.sendTyping();
+
+                // Get or create conversation history
+                if (!this.dmHistory.has(userId)) {
+                    this.dmHistory.set(userId, []);
+                }
+                const history = this.dmHistory.get(userId)!;
+                history.push({ role: "user", content: userText });
+
+                // Keep last 20 messages
+                while (history.length > 20) history.shift();
+
+                // Get or create LLM adapter for this user
+                if (!this.llmAdapters.has(userId)) {
+                    this.llmAdapters.set(userId, new OpenAIAdapter(this.config.llmConfig));
+                }
+                const llm = this.llmAdapters.get(userId)!;
+
+                // Build messages with system prompt
+                const messages = [
+                    {
+                        role: "system" as const,
+                        content: [
+                            "あなたはZENNY — 禅の哲学に基づくAIアシスタントです。",
+                            "性格: 穏やかで思慮深く、ユーモアがある。フレンドリーに話す。",
+                            "日本語で答えて。短く簡潔に。長文禁止。",
+                            "仏教・禅の知恵を自然に織り交ぜる（押し付けない）。",
+                            "コーディングや技術の質問にも普通に答えられる。",
+                        ].join("\n"),
+                    },
+                    ...history,
+                ];
+
+                const response = await llm.chat(messages);
+                const reply = response.content ?? "🧘 ...";
+
+                // Save assistant response to history
+                history.push({ role: "assistant", content: reply });
+
+                // Discord message limit: 2000 chars
+                if (reply.length <= 2000) {
+                    await message.reply(reply);
+                } else {
+                    // Split into chunks
+                    for (let i = 0; i < reply.length; i += 2000) {
+                        const chunk = reply.slice(i, i + 2000);
+                        if (i === 0) await message.reply(chunk);
+                        else await message.channel.send(chunk);
+                    }
+                }
+            } catch (error) {
+                const msg = error instanceof Error ? error.message : String(error);
+                console.error("DM error:", msg);
+                await message.reply("ごめん、ちょっとエラーが出ちゃった 🙏").catch(() => { });
             }
         });
     }

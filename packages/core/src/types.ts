@@ -104,6 +104,8 @@ export interface Action {
     parameters: Record<string, unknown>;
     /** LLM's reasoning for choosing this action. */
     reasoning?: string;
+    /** Tool call ID from the LLM (used for chat history). */
+    toolCallId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +139,8 @@ export interface ChatMessage {
     content: string;
     /** Tool call ID (for tool role messages). */
     toolCallId?: string;
+    /** Tool calls made by the assistant (for assistant role messages). */
+    toolCalls?: LLMToolCall[];
 }
 
 /** A tool call requested by the LLM. */

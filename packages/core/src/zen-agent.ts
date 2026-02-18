@@ -397,12 +397,14 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                 toolName: tc.name,
                 parameters: tc.arguments,
                 reasoning: response.content ?? undefined,
+                toolCallId: tc.id,
             };
 
-            // Add to chat history
+            // Add to chat history WITH tool_calls (OpenAI requires this)
             this.chatHistory.push({
                 role: "assistant",
-                content: response.content ?? `Using tool: ${tc.name}`,
+                content: response.content ?? "",
+                toolCalls: response.toolCalls,
             });
 
             return action;
@@ -439,7 +441,7 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
             this.chatHistory.push({
                 role: "tool",
                 content: JSON.stringify(result.output),
-                toolCallId: action.toolName,
+                toolCallId: action.toolCallId ?? action.toolName,
             });
 
             return result;
