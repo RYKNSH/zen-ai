@@ -101,6 +101,12 @@ export interface PrajnaConfig {
     episodicDecayRate?: number;
     /** Minimum relevance to promote from working to episodic. Default: 0.3. */
     promotionThreshold?: number;
+    /**
+     * Optional: LLM embedding function for true semantic search.
+     * When provided, uses real embeddings instead of TF-IDF.
+     * Example: `(text) => llm.embed(text)`
+     */
+    embedFn?: (text: string) => Promise<number[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +141,7 @@ class PrajnaMemoryStore implements HierarchicalMemory {
     private workingDecay: number;
     private episodicDecay: number;
     private promotionThreshold: number;
+    private embedFn: ((text: string) => Promise<number[]>) | null;
 
     constructor(config: PrajnaConfig) {
         this.persistDir = config.persistDir ?? null;
@@ -143,12 +150,16 @@ class PrajnaMemoryStore implements HierarchicalMemory {
         this.workingDecay = config.workingDecayRate ?? 0.1;
         this.episodicDecay = config.episodicDecayRate ?? 0.02;
         this.promotionThreshold = config.promotionThreshold ?? 0.3;
+        this.embedFn = config.embedFn ?? null;
     }
 
     async store(entry: Omit<MemoryEntry, "id" | "createdAt" | "lastAccessed" | "accessCount">): Promise<string> {
         const id = randomUUID();
         const now = new Date().toISOString();
-        const vec = textToVector(entry.content);
+        // Use LLM embeddings if available, otherwise TF-IDF fallback
+        const vec = this.embedFn
+            ? await this.embedFn(entry.content)
+            : textToVector(entry.content);
         const full: MemoryEntry & { _vec?: number[] } = {
             ...entry,
             id,
@@ -170,7 +181,10 @@ class PrajnaMemoryStore implements HierarchicalMemory {
     }
 
     async retrieve(query: string, layer?: MemoryLayer, topK = 5): Promise<MemoryEntry[]> {
-        const queryVec = textToVector(query);
+        // Use LLM embeddings if available, otherwise TF-IDF fallback
+        const queryVec = this.embedFn
+            ? await this.embedFn(query)
+            : textToVector(query);
         const queryLower = query.toLowerCase();
 
         type ScoredEntry = { entry: MemoryEntry & { _vec?: number[] }; score: number };

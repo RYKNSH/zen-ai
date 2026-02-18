@@ -299,6 +299,13 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                     await this.analyzeCausality();
                 }
 
+                // 6d. Chat history sliding window — prevent memory explosion
+                // Keep last 20 messages to maintain continuity while bounding memory
+                const MAX_CHAT_HISTORY = 20;
+                if (this.chatHistory.length > MAX_CHAT_HISTORY) {
+                    this.chatHistory = this.chatHistory.slice(-MAX_CHAT_HISTORY);
+                }
+
                 // 7. Record failure if tool failed
                 if (!result.success && (this.failureDB || this.karmaMemoryDB)) {
                     await this.recordFailure(action, result);

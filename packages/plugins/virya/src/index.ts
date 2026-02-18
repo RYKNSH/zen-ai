@@ -63,6 +63,8 @@ export interface ViryaConfig {
     maxSynthesesPerRun?: number;
     /** Minimum confidence threshold for synthesized tools. Default: 0.7. */
     minConfidence?: number;
+    /** Timeout for synthesized tool execution in milliseconds. Default: 5000. */
+    timeoutMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +91,7 @@ export interface ViryaMetrics {
  * Create a sandboxed tool from a blueprint.
  * The implementation is evaluated in a restricted scope with JSON I/O.
  */
-function createToolFromBlueprint(blueprint: ToolBlueprint): Tool {
+function createToolFromBlueprint(blueprint: ToolBlueprint, timeoutMs = 5000): Tool {
     // Security check: reject implementations containing dangerous patterns
     for (const pattern of DENYLIST_PATTERNS) {
         if (pattern.test(blueprint.implementation)) {
@@ -114,11 +116,11 @@ function createToolFromBlueprint(blueprint: ToolBlueprint): Tool {
                         ${blueprint.implementation}
                     })();`,
                 );
-                // Timeout protection: 5 second limit
+                // Timeout protection: configurable limit
                 const result = await Promise.race([
                     fn(params),
                     new Promise((_, reject) =>
-                        setTimeout(() => reject(new Error("Tool execution timed out (5s)")), 5000),
+                        setTimeout(() => reject(new Error(`Tool execution timed out (${timeoutMs}ms)`)), timeoutMs),
                     ),
                 ]);
                 return {
@@ -249,6 +251,7 @@ export function createViryaPlugin(config: ViryaConfig): ZenPlugin {
         blueprintDir,
         maxSynthesesPerRun = 3,
         minConfidence = 0.7,
+        timeoutMs = 5000,
     } = config;
 
     let metrics: ViryaMetrics = {
@@ -302,7 +305,7 @@ export function createViryaPlugin(config: ViryaConfig): ZenPlugin {
             }
 
             try {
-                const tool = createToolFromBlueprint(blueprint);
+                const tool = createToolFromBlueprint(blueprint, timeoutMs);
                 agent.addTool(tool);
                 metrics.successes++;
                 metrics.synthesizedTools.push(blueprint.name);
@@ -348,7 +351,7 @@ export function createViryaPlugin(config: ViryaConfig): ZenPlugin {
             if (existingTools.includes(blueprint.name)) return;
 
             try {
-                const tool = createToolFromBlueprint(blueprint);
+                const tool = createToolFromBlueprint(blueprint, timeoutMs);
                 agent.addTool(tool);
                 metrics.successes++;
                 metrics.synthesizedTools.push(blueprint.name);
