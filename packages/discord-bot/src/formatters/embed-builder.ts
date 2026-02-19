@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { EmbedBuilder } from "discord.js";
-import type { Goal, Delta, Milestone } from "@zen-ai/core";
+import type { Goal, Delta, Milestone, Artifact } from "@zen-ai/core";
 
 /** Colors for different event types. */
 const COLORS = {
@@ -109,6 +109,7 @@ export function agentCompleteEmbed(
     goal: Goal,
     steps: number,
     delta?: Delta,
+    artifacts?: Artifact[],
 ): EmbedBuilder {
     const embed = new EmbedBuilder()
         .setTitle("🧘 Agent Complete")
@@ -135,6 +136,17 @@ export function agentCompleteEmbed(
         embed.addFields({
             name: "Remaining Gaps",
             value: delta.gaps.join("\n"),
+        });
+    }
+
+    if (artifacts && artifacts.length > 0) {
+        const list = artifacts
+            .slice(0, 10)
+            .map((a, i) => `**${i + 1}.** \`${a.toolName}\` — ${a.description}`)
+            .join("\n");
+        embed.addFields({
+            name: `📦 成果物 (${artifacts.length}件)`,
+            value: list.length > 1024 ? list.slice(0, 1021) + "..." : list,
         });
     }
 
@@ -339,5 +351,39 @@ export function askResponseEmbed(
             },
         )
         .setTimestamp();
+}
+
+/** Create an embed for artifacts (deliverables) list. */
+export function artifactsListEmbed(
+    artifacts: Artifact[],
+): EmbedBuilder {
+    const embed = new EmbedBuilder()
+        .setTitle("📦 成果物 (Artifacts)")
+        .setColor(COLORS.complete)
+        .setTimestamp();
+
+    if (artifacts.length === 0) {
+        embed.setDescription("まだ成果物ないよ");
+    } else {
+        const list = artifacts
+            .slice(0, 15)
+            .map(
+                (a, i) =>
+                    `**${i + 1}.** \`${a.toolName}\` (Step ${a.step})\n   └ ${a.description}`,
+            )
+            .join("\n");
+        embed.setDescription(list);
+        if (artifacts.length > 15) {
+            embed.setFooter({
+                text: `15件中 ${artifacts.length}件を表示`,
+            });
+        } else {
+            embed.setFooter({
+                text: `${artifacts.length}件の成果物`,
+            });
+        }
+    }
+
+    return embed;
 }
 

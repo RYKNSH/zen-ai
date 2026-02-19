@@ -10,6 +10,7 @@ export type {
     Observation,
     Delta,
     Action,
+    Artifact,
     Tool,
     ToolResult,
     ParameterSchema,

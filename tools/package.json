@@ -16,7 +16,13 @@
         "dev": "tsc --watch"
     },
     "dependencies": {
-        "@zen-ai/core": "workspace:*"
+        "@zen-ai/core": "workspace:*",
+        "localtunnel": "^2.0.2",
+        "serve-handler": "^6.1.6"
     },
-    "license": "MIT"
+    "license": "MIT",
+    "devDependencies": {
+        "@types/localtunnel": "^2.0.4",
+        "@types/serve-handler": "^6.1.4"
+    }
 }

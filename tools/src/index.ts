@@ -10,3 +10,4 @@ export { directoryListTool } from "./directory-tool.js";
 export { codeSearchTool } from "./search-tool.js";
 export { codeEditTool } from "./edit-tool.js";
 export { projectScaffoldTool } from "./scaffold-tool.js";
+export { startSandboxTool } from "./sandbox-tool.js";

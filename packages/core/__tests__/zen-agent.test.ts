@@ -244,4 +244,134 @@ describe("ZenAgent", () => {
         await agent.run();
         expect(actionCount).toBe(2);
     });
+
+    it("should collect artifacts from successful tool executions", async () => {
+        let chatCallCount = 0;
+        const llm = createMockLLM({
+            chat: vi.fn().mockImplementation(() => {
+                chatCallCount++;
+                if (chatCallCount === 1) {
+                    return Promise.resolve({
+                        content: "Using tool",
+                        toolCalls: [
+                            {
+                                id: "call_1",
+                                name: "test_tool",
+                                arguments: { input: "hello" },
+                            },
+                        ],
+                    });
+                }
+                return Promise.resolve({ content: "DONE", toolCalls: undefined });
+            }),
+        });
+
+        const tool = createMockTool();
+        const agent = new ZenAgent({
+            goal: "Create something",
+            llm,
+            tools: [tool],
+            maxSteps: 5,
+        });
+
+        await agent.run();
+        const state = agent.getState();
+
+        expect(state.artifacts).toHaveLength(1);
+        expect(state.artifacts[0].toolName).toBe("test_tool");
+        expect(state.artifacts[0].output).toBe("tool result");
+        expect(state.artifacts[0].step).toBe(1);
+    });
+
+    it("should emit artifact:created event", async () => {
+        let chatCallCount = 0;
+        const llm = createMockLLM({
+            chat: vi.fn().mockImplementation(() => {
+                chatCallCount++;
+                if (chatCallCount === 1) {
+                    return Promise.resolve({
+                        content: "Creating artifact",
+                        toolCalls: [
+                            {
+                                id: "call_1",
+                                name: "test_tool",
+                                arguments: { input: "data" },
+                            },
+                        ],
+                    });
+                }
+                return Promise.resolve({ content: "DONE", toolCalls: undefined });
+            }),
+        });
+
+        const tool = createMockTool();
+        const agent = new ZenAgent({
+            goal: "Build",
+            llm,
+            tools: [tool],
+            maxSteps: 5,
+        });
+
+        const artifactListener = vi.fn();
+        agent.on("artifact:created", artifactListener);
+
+        await agent.run();
+
+        expect(artifactListener).toHaveBeenCalledOnce();
+        expect(artifactListener).toHaveBeenCalledWith(
+            expect.objectContaining({
+                toolName: "test_tool",
+                step: 1,
+            }),
+        );
+    });
+
+    it("should not create artifacts for failed tool executions", async () => {
+        let chatCallCount = 0;
+        const llm = createMockLLM({
+            chat: vi.fn().mockImplementation(() => {
+                chatCallCount++;
+                if (chatCallCount === 1) {
+                    return Promise.resolve({
+                        content: "Trying",
+                        toolCalls: [
+                            {
+                                id: "call_1",
+                                name: "failing_tool",
+                                arguments: { input: "x" },
+                            },
+                        ],
+                    });
+                }
+                return Promise.resolve({ content: "DONE", toolCalls: undefined });
+            }),
+        });
+
+        const failingTool: Tool = {
+            name: "failing_tool",
+            description: "A tool that fails",
+            parameters: {
+                type: "object",
+                properties: {
+                    input: { type: "string", description: "input" },
+                },
+            },
+            execute: vi.fn().mockResolvedValue({
+                success: false,
+                output: null,
+                error: "Something went wrong",
+            }),
+        };
+
+        const agent = new ZenAgent({
+            goal: "Try",
+            llm,
+            tools: [failingTool],
+            maxSteps: 5,
+        });
+
+        await agent.run();
+        const state = agent.getState();
+        expect(state.artifacts).toHaveLength(0);
+    });
 });

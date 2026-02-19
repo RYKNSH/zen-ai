@@ -85,61 +85,58 @@ export class GoogleAdapter implements LLMAdapter {
         messages: ChatMessage[],
         options?: { tools?: LLMToolDefinition[] },
     ): Promise<ChatResponse> {
-        const contents = this.toGeminiContents(messages);
+        const geminiMessages = this.toGeminiContents(messages);
 
-        const tools: { functionDeclarations: FunctionDeclaration[] }[] = [];
+        // Convert tools
+        const tools: Array<{ functionDeclarations: FunctionDeclaration[] }> = [];
         if (options?.tools?.length) {
             tools.push({
                 functionDeclarations: options.tools.map((t) =>
-                    this.toFunctionDeclaration(t),
+                    this.toFunctionDeclaration(t)
                 ),
             });
         }
 
         const result = await this.model.generateContent({
-            contents,
-            tools: tools.length ? tools : undefined,
-            generationConfig: {
-                temperature: this.temperature,
-                maxOutputTokens: this.maxTokens,
-            },
+            contents: geminiMessages,
+            tools: tools.length > 0 ? tools : undefined,
         });
 
         const response = result.response;
-        const candidate = response.candidates?.[0];
-
-        let content: string | null = null;
-        const toolCalls: LLMToolCall[] = [];
-
-        if (candidate?.content?.parts) {
-            for (const part of candidate.content.parts) {
-                if ("text" in part && part.text) {
-                    content = part.text;
-                } else if ("functionCall" in part && part.functionCall) {
-                    toolCalls.push({
-                        id: `fc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                        name: part.functionCall.name,
-                        arguments: (part.functionCall.args ?? {}) as Record<
-                            string,
-                            unknown
-                        >,
-                    });
-                }
-            }
+        // Handle safety blocks/empty responses
+        let text = "";
+        try {
+            text = response.text();
+        } catch {
+            text = "";
         }
 
+        const functionCalls = response.functionCalls();
+        const toolCalls = functionCalls?.map((fc) => ({
+            id: `call_${Math.random().toString(36).slice(2)}`,
+            name: fc.name,
+            arguments: fc.args as Record<string, unknown>,
+        }));
+
+        const meta = response.usageMetadata;
+        const usage = meta ? {
+            promptTokens: meta.promptTokenCount,
+            completionTokens: meta.candidatesTokenCount,
+            totalTokens: meta.totalTokenCount,
+        } : undefined;
+
         return {
-            content,
-            toolCalls: toolCalls.length ? toolCalls : undefined,
+            content: text,
+            toolCalls,
+            usage,
         };
     }
 
     /** Convert ZEN AI messages to Gemini Content format. */
     private toGeminiContents(messages: ChatMessage[]): Content[] {
         const contents: Content[] = [];
-        // Gemini uses system instruction separately; filter it out
         for (const msg of messages) {
-            if (msg.role === "system") continue; // handled via systemInstruction
+            if (msg.role === "system") continue; // Gemini uses separate systemInstruction (set in model) or prompts
             if (msg.role === "tool") {
                 contents.push({
                     role: "function",
@@ -166,24 +163,40 @@ export class GoogleAdapter implements LLMAdapter {
     private toFunctionDeclaration(
         tool: LLMToolDefinition,
     ): FunctionDeclaration {
+        // Simplified parameter conversion
+        // Note: Gemini schema is stricter than generic JSON schema
+        const properties: Record<string, any> = {};
+        const required = tool.parameters.required || [];
+
+        if (tool.parameters.properties) {
+            for (const [key, val] of Object.entries(tool.parameters.properties)) {
+                properties[key] = {
+                    type: this.mapSchemaType(val.type),
+                    description: val.description,
+                };
+            }
+        }
+
         return {
             name: tool.name,
             description: tool.description,
             parameters: {
                 type: SchemaType.OBJECT,
-                properties: Object.fromEntries(
-                    Object.entries(tool.parameters.properties ?? {}).map(
-                        ([key, val]) => [
-                            key,
-                            {
-                                type: val.type,
-                                description: val.description,
-                            },
-                        ],
-                    ),
-                ),
-                required: tool.parameters.required ?? [],
+                properties,
+                required,
             },
         } as FunctionDeclaration;
+    }
+
+    private mapSchemaType(type: string): SchemaType {
+        switch (type.toLowerCase()) {
+            case "string": return SchemaType.STRING;
+            case "number":
+            case "integer": return SchemaType.NUMBER;
+            case "boolean": return SchemaType.BOOLEAN;
+            case "array": return SchemaType.ARRAY;
+            case "object": return SchemaType.OBJECT;
+            default: return SchemaType.STRING;
+        }
     }
 }

@@ -150,10 +150,18 @@ export interface LLMToolCall {
     arguments: Record<string, unknown>;
 }
 
+/** Token usage statistics. */
+export interface TokenUsage {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+}
+
 /** Response from a chat completion that may include tool calls. */
 export interface ChatResponse {
     content: string | null;
     toolCalls?: LLMToolCall[];
+    usage?: TokenUsage;
 }
 
 /** Tool definition in the format expected by the LLM. */
@@ -365,6 +373,8 @@ export interface ZenAgentEvents {
     "agent:complete": {
         goal: Goal;
         totalSteps: number;
+        cost: number;
+        usage: TokenUsage;
     };
     "agent:error": {
         error: Error;
@@ -418,6 +428,15 @@ export interface ZenAgentEvents {
     /** Emitted when the agent evolves its own behavior. */
     "anatta:evolved": SelfEvolutionRecord;
 
+    // --- L3: Autonomous Chat Events ---
+
+    /** Emitted when the agent proposes to start a task from chat. */
+    "agent:task:proposed": {
+        goal: string;
+        reasoning?: string;
+    };
+
+
     // --- Plugin Events (M3) ---
 
     /** Emitted when a plugin vetoes an action. */
@@ -425,6 +444,31 @@ export interface ZenAgentEvents {
         plugin: string;
         reason: string;
     };
+
+    // --- Artifact Events ---
+
+    /** Emitted when an artifact is created from a successful tool execution. */
+    "artifact:created": Artifact;
+}
+
+// ---------------------------------------------------------------------------
+// Artifacts — Deliverables created by the agent
+// ---------------------------------------------------------------------------
+
+/** A deliverable produced by a successful tool execution. */
+export interface Artifact {
+    /** Name of the tool that produced this artifact. */
+    toolName: string;
+    /** Human-readable description of what was produced. */
+    description: string;
+    /** Tool output (truncated if large). */
+    output: string;
+    /** Creation timestamp (ISO 8601). */
+    createdAt: string;
+    /** Step number at which this artifact was created. */
+    step: number;
+    /** Absolute path to the file artifact, if applicable. */
+    filePath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -454,6 +498,10 @@ export interface AgentState {
         /** Proxy metric for suffering: number of user instructions (corrections). */
         userInstructionCount: number;
     };
+    /** Artifacts (deliverables) produced during this run. */
+    artifacts: Artifact[];
+    /** Chat history for persistent conversation context. */
+    chatHistory?: ChatMessage[];
 }
 
 // ============================================================================

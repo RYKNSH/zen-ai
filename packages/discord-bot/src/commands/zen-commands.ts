@@ -5,8 +5,10 @@
 import {
     ChatInputCommandInteraction,
     SlashCommandBuilder,
+    TextBasedChannel,
 } from "discord.js";
 import { ZenAgent } from "@zen-ai/core";
+import { existsSync } from "node:fs";
 import type { ZenAgentConfig } from "@zen-ai/core";
 
 /** Command definition for /zen. */
@@ -57,9 +59,11 @@ export const zenRunCommand = new SlashCommandBuilder()
     )
     .addSubcommand((sub) =>
         sub.setName("failures").setDescription("List recorded failure knowledge"),
+    )
+    .addSubcommand((sub) =>
+        sub.setName("artifacts").setDescription("List deliverables produced by the agent"),
     );
 
-/** Handle /zen run <goal>. */
 export async function handleZenRun(
     interaction: ChatInputCommandInteraction,
     agents: Map<string, ZenAgent>,
@@ -79,17 +83,55 @@ export async function handleZenRun(
     const maxSteps = interaction.options.getInteger("max_steps") ?? 30;
 
     await interaction.deferReply();
+    const channel = interaction.channel;
+
+    if (!channel || !("send" in channel)) {
+        await interaction.editReply("エラー: このチャンネルでは実行できません（TextBasedChannelが必要です）。");
+        return;
+    }
+
+    await interaction.editReply(`**起動**: 「${goal}」`);
+
+    // Delegate to shared runner
+    await runZenAgent(
+        goal,
+        agents,
+        createAgentConfig,
+        channel as TextBasedChannel,
+        contextId,
+        maxSteps
+    );
+}
+
+/**
+ * Shared logic to run a ZenAgent in a channel.
+ * Can be called from Slash Command or DM logic.
+ */
+export async function runZenAgent(
+    goal: string,
+    agents: Map<string, ZenAgent>,
+    createAgentConfig: (goal: string, maxSteps: number) => ZenAgentConfig,
+    channel: TextBasedChannel,
+    contextId: string,
+    maxSteps: number = 30
+): Promise<void> {
+    // Check if agent exists (redundant if called from handleZenRun, but good for safety)
+    if (agents.has(contextId)) {
+        if ("send" in channel) {
+            await (channel as any).send("もうエージェント動いてるよ。先に /zen stop してね。");
+        }
+        return;
+    }
 
     const config = createAgentConfig(goal, maxSteps);
     const agent = new ZenAgent(config);
     agents.set(contextId, agent);
 
-    // Send messages to the same channel (or DM)
+    // Helper to send messages to the channel
     const send = async (text: string) => {
         try {
-            const ch = interaction.channel;
-            if (ch && "send" in ch) {
-                await ch.send(text);
+            if ("send" in channel) {
+                await (channel as any).send(text);
             }
         } catch {
             // ignore permission errors in read-only channels
@@ -137,13 +179,40 @@ export async function handleZenRun(
         }
     });
 
-    await interaction.followUp(`🧘 「${goal}」に取り掛かるよ`);
+    agent.on("artifact:created", ({ toolName, step, filePath, description }) => {
+        const text = `📦 成果物生成: Step ${step} — \`${toolName}\``;
+
+        if (filePath && existsSync(filePath)) {
+            // Attempt to send file attachment
+            // @ts-ignore - channel is TextBasedChannel
+            if ("send" in channel) {
+                (channel as any).send({
+                    content: text,
+                    files: [filePath]
+                }).catch((err: any) => {
+                    send(`${text}\n(File upload failed: ${err.message})`);
+                });
+                return;
+            }
+        }
+
+        send(text);
+    });
+
+    // Report cost
+    agent.on("agent:complete", ({ cost, usage }) => {
+        send(`💰 Cost: $${cost.toFixed(6)} (In: ${usage.promptTokens}, Out: ${usage.completionTokens})`);
+    });
 
     try {
         await agent.run();
         const state = agent.getState();
         const progress = state.delta ? `${Math.round(state.delta.progress * 100)}%` : "完了";
-        await send(`✅ 終わったよ。${state.stepCount}ステップ、進捗 ${progress}`);
+        const artifactCount = state.artifacts?.length ?? 0;
+        const artifactSummary = artifactCount > 0
+            ? `\n📦 成果物: ${artifactCount}件`
+            : "";
+        await send(`✅ 終わったよ。${state.stepCount}ステップ、進捗 ${progress}${artifactSummary}`);
     } catch (error) {
         await send(`💥 エラーで止まった: ${error instanceof Error ? error.message : String(error)}`);
     } finally {

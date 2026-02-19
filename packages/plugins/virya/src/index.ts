@@ -207,9 +207,9 @@ Rules:
         const response = await llm.chat([
             { role: "system", content: "You are a tool synthesis engine. Respond with ONLY valid JSON." },
             { role: "user", content: prompt },
-        ], { temperature: 0.3 });
+        ]);
 
-        const text = response.content.trim();
+        const text = (response.content ?? "").trim();
         // Extract JSON from potential markdown code blocks
         const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) ?? [null, text];
         const json = jsonMatch[1]?.trim() ?? text;

@@ -256,6 +256,13 @@ export class ZenOrchestrator {
                 console.log(`  🏔️ Milestone reached: ${milestoneId}`);
             });
 
+            // Report cost
+            agent.on("agent:complete", ({ cost, usage }) => {
+                console.log(
+                    `  💰 Cost: $${cost.toFixed(6)} (In: ${usage.promptTokens}, Out: ${usage.completionTokens})`
+                );
+            });
+
             await agent.run();
 
             // Success

@@ -16,10 +16,14 @@
         "dev": "tsc --watch"
     },
     "dependencies": {
-        "@zen-ai/core": "workspace:*",
         "@zen-ai/adapter-openai": "workspace:*",
+        "@zen-ai/core": "workspace:*",
         "@zen-ai/memory": "workspace:*",
-        "@zen-ai/tools": "workspace:*"
+        "@zen-ai/tools": "workspace:*",
+        "dotenv": "^17.3.1"
     },
-    "license": "MIT"
+    "license": "MIT",
+    "devDependencies": {
+        "tsx": "^4.21.0"
+    }
 }

@@ -10,17 +10,29 @@ import {
     REST,
     Routes,
     Events,
+    ActivityType,
+    TextBasedChannel,
     ChannelType,
     type ChatInputCommandInteraction,
     type Message,
+    ButtonBuilder,
+    ButtonStyle,
+    ActionRowBuilder,
+    ComponentType,
 } from "discord.js";
 import { ZenAgent } from "@zen-ai/core";
 import type { ZenAgentConfig, Tool, LLMAdapter } from "@zen-ai/core";
 import { OpenAIAdapter } from "@zen-ai/adapter-openai";
 import type { OpenAIAdapterConfig } from "@zen-ai/adapter-openai";
-import { SkillDB, FailureKnowledgeDB } from "@zen-ai/memory";
-import { fileReadTool, fileWriteTool, httpTool } from "@zen-ai/tools";
-import { zenRunCommand, handleZenRun } from "./commands/zen-commands.js";
+import { SkillDB, FailureKnowledgeDB, KarmaMemory } from "@zen-ai/memory";
+import { fileReadTool, fileWriteTool, httpTool, startSandboxTool } from "@zen-ai/tools";
+import {
+    zenRunCommand,
+    handleZenRun,
+    runZenAgent,
+} from "./commands/zen-commands.js";
+import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 /** Configuration for the ZEN AI Discord Bot. */
 export interface ZenDiscordBotConfig {
@@ -49,6 +61,8 @@ export interface ZenDiscordBotConfig {
 export class ZenDiscordBot {
     private client: Client;
     private agents: Map<string, ZenAgent> = new Map();
+    /** Per-user agents for DM chat (persistent). */
+    private dmAgents: Map<string, ZenAgent> = new Map();
     private llmAdapters: Map<string, LLMAdapter> = new Map();
     /** DM conversation history per user (userId → messages). */
     private dmHistory: Map<string, Array<{ role: "user" | "assistant"; content: string }>> = new Map();
@@ -126,6 +140,7 @@ export class ZenDiscordBot {
             fileReadTool,
             fileWriteTool,
             httpTool,
+            startSandboxTool,
             ...(this.config.tools ?? []),
         ];
 
@@ -199,6 +214,10 @@ export class ZenDiscordBot {
                         await this.handleFailures(interaction);
                         break;
 
+                    case "artifacts":
+                        await this.handleArtifacts(interaction);
+                        break;
+
                     default:
                         await interaction.reply({
                             content: `知らないコマンドだよ: ${subcommand}`,
@@ -233,50 +252,147 @@ export class ZenDiscordBot {
             try {
                 await message.channel.sendTyping();
 
-                // Get or create conversation history
-                if (!this.dmHistory.has(userId)) {
-                    this.dmHistory.set(userId, []);
+                // Get or create persistent agent for this user
+                let agent = this.dmAgents.get(userId);
+
+                if (!agent) {
+                    // Initialize user-specific persistence
+                    const userDir = join(process.cwd(), "data", "users", userId);
+                    if (!existsSync(userDir)) {
+                        mkdirSync(userDir, { recursive: true });
+                    }
+
+                    const llm = new OpenAIAdapter(this.config.llmConfig);
+                    const failureDB = new FailureKnowledgeDB({
+                        persistPath: join(userDir, "failures.json"),
+                    });
+                    const karmaDB = new KarmaMemory({
+                        persistPath: join(userDir, "karma.db"),
+                    });
+                    // Shared skill DB (read-only for now, or user-specific if we want)
+                    const skillDB = this.config.skillDBPath
+                        ? new SkillDB({ persistPath: this.config.skillDBPath })
+                        : undefined;
+
+                    agent = new ZenAgent({
+                        goal: "ユーザーの良き対話相手となり、共に学び、成長すること。",
+                        llm,
+                        failureDB,
+                        karmaMemoryDB: karmaDB,
+                        skillDB,
+                        selfModelPath: join(userDir, "self_model.json"),
+                        maxSteps: 5, // Chat doesn't use steps much, but needed for config
+                    });
+
+                    // Load DBs
+                    await failureDB.load();
+                    await karmaDB.load();
+                    if (skillDB) await skillDB.load();
+
+                    // Load Chat History
+                    const historyPath = join(userDir, "chat_history.json");
+                    if (existsSync(historyPath)) {
+                        try {
+                            const raw = readFileSync(historyPath, "utf-8");
+                            const history = JSON.parse(raw);
+                            if (Array.isArray(history)) {
+                                agent.setChatHistory(history);
+                            }
+                        } catch (e) {
+                            console.error("Failed to load chat history:", e);
+                        }
+                    }
+
+                    // --- Listener removed (handled via chat response toolCalls) ---
+
+                    this.dmAgents.set(userId, agent);
                 }
-                const history = this.dmHistory.get(userId)!;
-                history.push({ role: "user", content: userText });
 
-                // Keep last 20 messages
-                while (history.length > 20) history.shift();
+                // Chat with the agent
+                const reply = await agent.chat(userText);
 
-                // Get or create LLM adapter for this user
-                if (!this.llmAdapters.has(userId)) {
-                    this.llmAdapters.set(userId, new OpenAIAdapter(this.config.llmConfig));
+                // Check for task proposal
+                const taskTool = reply.toolCalls?.find(tc => tc.name === "start_task");
+                if (taskTool) {
+                    const args = taskTool.arguments as { goal: string; reasoning?: string };
+
+                    const confirmMsg = await message.reply({
+                        content: `**提案**: タスク「${args.goal}」を開始しますか？\n(理由: ${args.reasoning ?? "なし"})`,
+                        components: [
+                            new ActionRowBuilder<ButtonBuilder>().addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId('start_task')
+                                    .setLabel('開始する')
+                                    .setStyle(ButtonStyle.Success),
+                                new ButtonBuilder()
+                                    .setCustomId('cancel_task')
+                                    .setLabel('キャンセル')
+                                    .setStyle(ButtonStyle.Secondary)
+                            )
+                        ]
+                    });
+
+                    // Collector for the buttons
+                    try {
+                        const confirmation = await confirmMsg.awaitMessageComponent({
+                            filter: i => i.user.id === userId,
+                            time: 60000,
+                            componentType: ComponentType.Button
+                        });
+
+                        if (confirmation.customId === 'start_task') {
+                            await confirmation.update({ content: `🚀 タスク「${args.goal}」を開始します...`, components: [] });
+
+                            // Execute logic
+                            await runZenAgent(
+                                args.goal,
+                                this.agents,
+                                (g, s) => this.createAgentConfig(g, s),
+                                message.channel as unknown as TextBasedChannel,
+                                userId,
+                                30
+                            );
+                        } else {
+                            await confirmation.update({ content: "キャンセルしました。", components: [] });
+                        }
+                    } catch (e) {
+                        await confirmMsg.edit({ content: "タイムアウトしました。", components: [] });
+                    }
+                    // Return here to avoid showing the redundant text reply from agent or cost info for the confirmation itself
+                    return;
                 }
-                const llm = this.llmAdapters.get(userId)!;
 
-                // Build messages with system prompt
-                const messages = [
-                    {
-                        role: "system" as const,
-                        content: [
-                            "あなたはZENNY — 禅の哲学に基づくAIアシスタントです。",
-                            "性格: 穏やかで思慮深く、ユーモアがある。フレンドリーに話す。",
-                            "日本語で答えて。短く簡潔に。長文禁止。",
-                            "仏教・禅の知恵を自然に織り交ぜる（押し付けない）。",
-                            "コーディングや技術の質問にも普通に答えられる。",
-                        ].join("\n"),
-                    },
-                    ...history,
-                ];
+                // Calculate estimated cost (Simple calculation for now)
+                // GPT-4o: Input $5/1M, Output $15/1M
+                let costInfo = "";
+                if (reply.usage) {
+                    const inputCost = (reply.usage.promptTokens / 1_000_000) * 5.0;
+                    const outputCost = (reply.usage.completionTokens / 1_000_000) * 15.0;
+                    const totalCost = inputCost + outputCost;
+                    costInfo = `\n(💰 $${totalCost.toFixed(6)})`;
+                }
 
-                const response = await llm.chat(messages);
-                const reply = response.content ?? "🧘 ...";
-
-                // Save assistant response to history
-                history.push({ role: "assistant", content: reply });
+                // Save Chat History
+                try {
+                    const state = agent.getState();
+                    if (state.chatHistory) {
+                        const historyPath = join(process.cwd(), "data", "users", userId, "chat_history.json");
+                        writeFileSync(historyPath, JSON.stringify(state.chatHistory, null, 2), "utf-8");
+                    }
+                } catch (e) {
+                    console.error("Failed to save chat history:", e);
+                }
 
                 // Discord message limit: 2000 chars
-                if (reply.length <= 2000) {
-                    await message.reply(reply);
+                // Append cost info to the last chunk
+                const totalContent = reply.content + costInfo;
+
+                if (totalContent.length <= 2000) {
+                    await message.reply(totalContent);
                 } else {
                     // Split into chunks
-                    for (let i = 0; i < reply.length; i += 2000) {
-                        const chunk = reply.slice(i, i + 2000);
+                    for (let i = 0; i < totalContent.length; i += 2000) {
+                        const chunk = totalContent.slice(i, i + 2000);
                         if (i === 0) await message.reply(chunk);
                         else await message.channel.send(chunk);
                     }
@@ -453,5 +569,64 @@ export class ZenDiscordBot {
             .map((f, i) => `${i + 1}. "${f.proverb}" — ${f.condition}`)
             .join("\n");
         await interaction.reply(`📝 失敗から学んだこと:\n${list}`);
+    }
+
+    /** Build dynamic agent context for DM system prompt. */
+    private buildAgentContext(userId: string): string {
+        // Check for agent running under this user's DM context
+        const agent = this.agents.get(userId);
+        if (!agent) return "";
+
+        const state = agent.getState();
+        const artifacts = state.artifacts ?? [];
+        const progress = state.delta
+            ? `${Math.round(state.delta.progress * 100)}%`
+            : "計算中";
+
+        const lines = [
+            "## 現在のエージェント状態",
+            `ゴール: ${state.goal.description}`,
+            `進捗: ${progress}`,
+            `ステップ: ${state.stepCount}`,
+        ];
+
+        if (state.delta?.gaps?.length) {
+            lines.push(`残課題: ${state.delta.gaps.join(", ")}`);
+        }
+
+        if (artifacts.length > 0) {
+            lines.push("");
+            lines.push(`## 成果物 (${artifacts.length}件)`);
+            for (const a of artifacts.slice(-10)) {
+                lines.push(`- Step ${a.step}: ${a.toolName} — ${a.description}`);
+            }
+        }
+
+        lines.push("");
+        lines.push("ユーザーが成果物や進捗について聞いたら、上記の情報を元に自然に答えて。");
+
+        return lines.join("\n");
+    }
+
+    /** Handle /zen artifacts. */
+    private async handleArtifacts(
+        interaction: ChatInputCommandInteraction,
+    ): Promise<void> {
+        const contextId = interaction.guildId ?? interaction.user.id;
+        if (!this.agents.has(contextId)) {
+            await interaction.reply({
+                content: "今はエージェント動いてないよ。完了後は成果物がリセットされるよ",
+                ephemeral: true,
+            });
+            return;
+        }
+
+        const agent = this.agents.get(contextId)!;
+        const state = agent.getState();
+        const artifacts = state.artifacts ?? [];
+
+        const { artifactsListEmbed } = await import("./formatters/embed-builder.js");
+        const embed = artifactsListEmbed(artifacts);
+        await interaction.reply({ embeds: [embed] });
     }
 }

@@ -86,53 +86,53 @@ export class AnthropicAdapter implements LLMAdapter {
         messages: ChatMessage[],
         options?: { tools?: LLMToolDefinition[] },
     ): Promise<ChatResponse> {
-        // Separate system message from conversation
-        const systemMessage = messages.find((m) => m.role === "system");
-        const conversationMessages = messages
+        // Convert messages to Anthropic format
+        const anthropicMessages = messages
             .filter((m) => m.role !== "system")
             .map((m) => this.toAnthropicMessage(m));
 
-        const requestParams: Anthropic.MessageCreateParams = {
-            model: this.model,
-            max_tokens: this.maxTokens,
-            temperature: this.temperature,
-            messages: conversationMessages,
-        };
+        const systemMessage = messages.find((m) => m.role === "system");
+        const systemMessageContent = systemMessage?.content;
 
-        if (systemMessage) {
-            requestParams.system = systemMessage.content;
-        }
-
-        // Add tools if provided
+        // Convert tools to Anthropic format
+        let anthropicTools: Anthropic.Tool[] = [];
         if (options?.tools?.length) {
-            requestParams.tools = options.tools.map((t) => ({
+            anthropicTools = options.tools.map((t) => ({
                 name: t.name,
                 description: t.description,
                 input_schema: t.parameters as Anthropic.Tool.InputSchema,
             }));
         }
 
-        const response = await this.client.messages.create(requestParams);
+        const response = await this.client.messages.create({
+            model: this.model, // Using instance model
+            max_tokens: this.maxTokens, // Using instance maxTokens
+            temperature: this.temperature, // Using instance temperature
+            messages: anthropicMessages,
+            system: systemMessageContent,
+            tools: anthropicTools.length > 0 ? anthropicTools : undefined,
+        });
 
-        // Parse response content
-        let content: string | null = null;
-        const toolCalls: LLMToolCall[] = [];
+        const contentBlock = response.content.find((c) => c.type === "text");
+        const content = contentBlock && contentBlock.type === "text" ? contentBlock.text : null;
 
-        for (const block of response.content) {
-            if (block.type === "text") {
-                content = block.text;
-            } else if (block.type === "tool_use") {
-                toolCalls.push({
-                    id: block.id,
-                    name: block.name,
-                    arguments: block.input as Record<string, unknown>,
-                });
-            }
-        }
+        const toolCallBlocks = response.content.filter((c) => c.type === "tool_use");
+        const toolCalls: LLMToolCall[] = toolCallBlocks.map((tc: any) => ({
+            id: tc.id,
+            name: tc.name,
+            arguments: tc.input,
+        }));
+
+        const usage = {
+            promptTokens: response.usage.input_tokens,
+            completionTokens: response.usage.output_tokens,
+            totalTokens: response.usage.input_tokens + response.usage.output_tokens,
+        };
 
         return {
             content,
-            toolCalls: toolCalls.length ? toolCalls : undefined,
+            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+            usage,
         };
     }
 

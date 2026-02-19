@@ -10,10 +10,12 @@ import type {
     Snapshot,
     Delta,
     Action,
+    Artifact,
     Tool,
     ToolResult,
     LLMToolDefinition,
     ChatMessage,
+    ChatResponse,
     ZenAgentConfig,
     ZenAgentEvents,
     AgentState,
@@ -26,6 +28,7 @@ import type {
     ActiveStrategies,
     ZenPlugin,
     PluginContext,
+    TokenUsage,
 } from "./types.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -47,6 +50,16 @@ const DEFAULT_MAX_RETRIES = 3;
  * or discarded at milestone boundaries (Context Reset).
  */
 export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
+    /**
+     * Calculate estimated cost in USD.
+     * Based on GPT-4o rates (Input: $2.50/1M, Output: $10.00/1M).
+     */
+    public calculateCost(): number {
+        const inputCost = (this.totalUsage.promptTokens / 1_000_000) * 2.50;
+        const outputCost = (this.totalUsage.completionTokens / 1_000_000) * 10.00;
+        return Number((inputCost + outputCost).toFixed(6));
+    }
+
     // --- Core 3 elements ---
     private readonly goal: Goal;
     private snapshot: Snapshot = DEFAULT_SNAPSHOT;
@@ -82,6 +95,9 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
     // --- Phase 2: Causal graph state ---
     private recentActions: Array<{ id: string; toolName: string; success: boolean; step: number }> = [];
 
+    // --- Cost Tracking ---
+    private totalUsage: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+
     // --- Phase M1: User instruction count as suffering proxy ---
     private userInstructionCount = 0;
 
@@ -102,6 +118,9 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
 
     // --- M3: Plugin System (六波羅蜜多) ---
     private plugins: ZenPlugin[] = [];
+
+    // --- Artifacts (成果物) ---
+    private artifacts: Artifact[] = [];
 
     constructor(config: ZenAgentConfig) {
         super();
@@ -185,6 +204,8 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
             throw new Error("Agent is already running");
         }
 
+        this.stepCount = 0;
+        this.totalUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
         this.running = true;
         this.emit("agent:start", { goal: this.goal });
 
@@ -265,6 +286,7 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                 const action = this.awakeningEnabled
                     ? await this.decideWithAwakening()
                     : await this.decide();
+
                 if (!action) break;
 
                 this.stepCount++;
@@ -328,6 +350,8 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
             this.emit("agent:complete", {
                 goal: this.goal,
                 totalSteps: this.stepCount,
+                cost: this.calculateCost(),
+                usage: this.totalUsage,
             });
         } catch (error) {
             const err = error instanceof Error ? error : new Error(String(error));
@@ -368,8 +392,144 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                 karmaCount: this.recentActions.filter(a => !a.success).length,
                 userInstructionCount: this.userInstructionCount ?? 0,
             },
+            artifacts: [...this.artifacts],
+            chatHistory: [...this.chatHistory],
         };
     }
+
+    /** Set chat history from external source (e.g. loaded from persistence). */
+    setChatHistory(history: ChatMessage[]): void {
+        this.chatHistory = [...history];
+    }
+
+    // =========================================================================
+    // Chat Interface (L3: Autonomous Conversation)
+    // =========================================================================
+
+    /**
+     * Chat with the agent.
+     * Integrates RAG (Knowledge/Failure/Karma) and SelfModel to provide context-aware responses.
+     * Treats user messages as observations and responses as actions.
+     */
+    async chat(message: string): Promise<ChatResponse> {
+        // 1. RAG: Retrieve context based on user message
+        const skills = this.skillDB
+            ? await this.skillDB.retrieve(message, 3)
+            : [];
+        const warnings = this.failureDB
+            ? await this.failureDB.retrieve(message, 3)
+            : [];
+        const karmaWisdom = this.karmaMemoryDB
+            ? await this.karmaMemoryDB.retrieve(message, 3)
+            : [];
+
+        // 2. Self-Model context (Strategy & Preferences)
+        const strat = this.selfModel.activeStrategies;
+        const selfContext = [
+            strat.toolPreferences ? `Helper preferences: ${JSON.stringify(strat.toolPreferences)}` : "",
+            strat.avoidPatterns.length ? `Avoid patterns: ${strat.avoidPatterns.join(", ")}` : "",
+            strat.approachHints.length ? `Approach hints: ${strat.approachHints.join(", ")}` : "",
+        ].filter(Boolean).join("\n");
+
+        // 3. Build System Prompt
+        const systemPrompt: ChatMessage = {
+            role: "system",
+            content: [
+                "You are ZEN AI, a present-moment autonomous agent.",
+                "Engage in a helpful, insightful conversation with the user.",
+                "Use the following retrieval-augmented context to inform your response:",
+                "",
+                skills.length ? `## Relevant Skills\n${skills.map(s => `- ${s.trigger}: ${s.command}`).join("\n")}` : "",
+                warnings.length ? `## ⚠️ Relevant Failures\n${warnings.map(w => `- ${w.proverb}`).join("\n")}` : "",
+                karmaWisdom.length ? `## 🔮 Karma Wisdom\n${karmaWisdom.map(k => `- ${k.proverb}`).join("\n")}` : "",
+                selfContext ? `## 🧠 Self-Model Context\n${selfContext}` : "",
+                "",
+                `## Current Goal Context: ${this.goal.description}`,
+                `## Current Progress: ${this.delta ? (this.delta.progress * 100).toFixed(0) + "%" : "Unknown"}`,
+                "",
+                "Response Guidelines:",
+                "- Be concise and direct.",
+                "- Incorporate Zen philosophy naturally if appropriate.",
+                "- If the user asks about progress, refer to the Current Goal Context.",
+                "- If the user asks for technical help, use the retrieved Skills/Failures.",
+                "- If the user asks to perform a complex task (create app, research topic, etc.), use the `start_task` tool.",
+            ].filter(Boolean).join("\n"),
+        };
+
+        // Define task starter tool
+        const taskTools: LLMToolDefinition[] = [{
+            name: "start_task",
+            description: "Start a new autonomous task or project based on user request. Use this when the user asks to create, research, or do something complex.",
+            parameters: {
+                type: "object",
+                properties: {
+                    goal: {
+                        type: "string",
+                        description: "The clear goal of the task to be started."
+                    },
+                    reasoning: {
+                        type: "string",
+                        description: "Why this task should be started."
+                    }
+                },
+                required: ["goal"]
+            }
+        }];
+
+        // 4. Update History & Call LLM
+        this.chatHistory.push({ role: "user", content: message });
+
+        // Keep history manageable
+        if (this.chatHistory.length > 20) {
+            this.chatHistory = this.chatHistory.slice(-20);
+        }
+
+        const response = await this.retryLLM(() =>
+            this.llm.chat([
+                systemPrompt,
+                ...this.chatHistory
+            ], {
+                tools: taskTools,
+            })
+        );
+
+        // Check for task start proposal
+        if (response.toolCalls?.length) {
+            const tool = response.toolCalls.find(tc => tc.name === "start_task");
+            if (tool) {
+                const args = tool.arguments as { goal: string; reasoning?: string };
+                this.emit("agent:task:proposed", {
+                    goal: args.goal,
+                    reasoning: args.reasoning
+                });
+
+                // Return a confirmation message (Discord will handle the actual run via event)
+                const reply = `了解。タスク「${args.goal}」を開始するね。`;
+                this.chatHistory.push({ role: "assistant", content: reply });
+                return {
+                    content: reply,
+                    toolCalls: response.toolCalls,
+                    usage: response.usage
+                };
+            }
+        }
+
+        const reply = response.content ?? "...";
+
+        // 5. Save Response
+        this.chatHistory.push({ role: "assistant", content: reply });
+
+        // 6. Minimal Learning Hook (Phase 2): Update interaction count in self-model
+        // (Full learning loop happens in run() actions, but we track chat volume here)
+        this.userInstructionCount++;
+
+        return {
+            content: reply,
+            toolCalls: response.toolCalls,
+            usage: response.usage
+        };
+    }
+
 
     // =========================================================================
     // Core Logic
@@ -467,6 +627,7 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
             role: "system",
             content: [
                 "You are ZEN AI, a present-moment agent. You act based on the current gap between goal and state.",
+                "If you create a web application or HTML file, use 'start_sandbox' to deploy it and share the URL with the user as a proof of work.",
                 "",
                 `## Goal: ${this.goal.description}`,
                 "",
@@ -504,9 +665,20 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
         );
 
         // Call LLM with function calling
-        const response = await this.retryLLM(() =>
-            this.llm.chat(messages, { tools: toolDefs.length > 0 ? toolDefs : undefined }),
-        );
+        const response = await this.retryLLM<ChatResponse>(async () => {
+            const res = await this.llm.chat(messages, {
+                tools: toolDefs.length > 0 ? toolDefs : undefined,
+            });
+
+            // Track usage
+            if (res.usage) {
+                this.totalUsage.promptTokens += res.usage.promptTokens;
+                this.totalUsage.completionTokens += res.usage.completionTokens;
+                this.totalUsage.totalTokens += res.usage.totalTokens;
+            }
+
+            return res;
+        });
 
         // Check for completion signal
         if (
@@ -569,6 +741,35 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                 content: JSON.stringify(result.output),
                 toolCallId: action.toolCallId ?? action.toolName,
             });
+
+            // Collect artifact from successful tool execution
+            if (result.success) {
+                const outputStr = typeof result.output === "string"
+                    ? result.output
+                    : JSON.stringify(result.output);
+
+                // Extract file path if available
+                let filePath: string | undefined;
+                if (action.parameters && typeof action.parameters === "object") {
+                    // Check for common file path parameters
+                    const params = action.parameters as Record<string, unknown>;
+                    if (typeof params.TargetFile === "string") filePath = params.TargetFile;
+                    else if (typeof params.targetFile === "string") filePath = params.targetFile;
+                    else if (typeof params.filePath === "string") filePath = params.filePath;
+                    else if (typeof params.path === "string") filePath = params.path;
+                }
+
+                const artifact: Artifact = {
+                    toolName: action.toolName,
+                    description: action.reasoning ?? `${action.toolName} executed successfully`,
+                    output: outputStr.length > 500 ? outputStr.slice(0, 500) + "..." : outputStr,
+                    createdAt: new Date().toISOString(),
+                    step: this.stepCount,
+                    filePath,
+                };
+                this.artifacts.push(artifact);
+                this.emit("artifact:created", artifact);
+            }
 
             return result;
         } catch (error) {
