@@ -204,7 +204,7 @@ Rules:
 - Do NOT synthesize tools that duplicate existing capabilities`;
 
     try {
-        const response = await llm.complete([
+        const response = await llm.chat([
             { role: "system", content: "You are a tool synthesis engine. Respond with ONLY valid JSON." },
             { role: "user", content: prompt },
         ], { temperature: 0.3 });
