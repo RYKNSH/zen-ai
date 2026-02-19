@@ -1,0 +1,25 @@
+{
+    "name": "@zen-ai/runtime",
+    "version": "1.0.0",
+    "description": "ZEN AI Autonomous Runtime — The Body (五蘊) for self-driving agents",
+    "type": "module",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc --watch"
+    },
+    "dependencies": {
+        "@zen-ai/core": "workspace:*",
+        "@zen-ai/adapter-openai": "workspace:*",
+        "@zen-ai/memory": "workspace:*",
+        "@zen-ai/tools": "workspace:*"
+    },
+    "license": "MIT"
+}

@@ -141,6 +141,16 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  packages/plugins/ksanti:
+    dependencies:
+      '@zen-ai/core':
+        specifier: workspace:*
+        version: link:../../core
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
   packages/plugins/prajna:
     dependencies:
       '@zen-ai/core':
@@ -176,6 +186,21 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+
+  packages/runtime:
+    dependencies:
+      '@zen-ai/adapter-openai':
+        specifier: workspace:*
+        version: link:../adapter-openai
+      '@zen-ai/core':
+        specifier: workspace:*
+        version: link:../core
+      '@zen-ai/memory':
+        specifier: workspace:*
+        version: link:../memory
+      '@zen-ai/tools':
+        specifier: workspace:*
+        version: link:../../tools
 
   tools:
     dependencies:
