@@ -7,7 +7,16 @@ import { ZenAgent } from "@zen-ai/core";
 import type { ZenAgentConfig, Tool, LLMAdapter } from "@zen-ai/core";
 import { OpenAIAdapter } from "@zen-ai/adapter-openai";
 import { SkillDB, FailureKnowledgeDB } from "@zen-ai/memory";
-import { fileReadTool, fileWriteTool, httpTool } from "@zen-ai/tools";
+import {
+    fileReadTool,
+    fileWriteTool,
+    httpTool,
+    createShellTool,
+    directoryListTool,
+    codeSearchTool,
+    codeEditTool,
+    projectScaffoldTool,
+} from "@zen-ai/tools";
 
 import { ZenDaemon } from "./daemon.js";
 import { TriggerSystem, taskFromTrigger, createTaskId } from "./triggers.js";
@@ -275,6 +284,11 @@ export class ZenOrchestrator {
             fileReadTool,
             fileWriteTool,
             httpTool,
+            createShellTool({ unsafe: true }), // Autonomous body needs hands
+            directoryListTool,
+            codeSearchTool,
+            codeEditTool,
+            projectScaffoldTool,
             ...(this.config.tools ?? []),
         ];
 
