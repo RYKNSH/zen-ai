@@ -121,6 +121,8 @@ export interface OrchestratorConfig {
     skillDBPath?: string;
     /** File paths for FailureDB persistence. */
     failureDBPath?: string;
+    /** File paths for KarmaMemory persistence. */
+    karmaMemoryDBPath?: string;
     /** Triggers to register on boot. */
     triggers?: TriggerDef[];
     /** Additional tools for agents. */

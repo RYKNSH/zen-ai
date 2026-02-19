@@ -6,7 +6,7 @@
 import { ZenAgent } from "@zen-ai/core";
 import type { ZenAgentConfig, Tool, LLMAdapter } from "@zen-ai/core";
 import { OpenAIAdapter } from "@zen-ai/adapter-openai";
-import { SkillDB, FailureKnowledgeDB } from "@zen-ai/memory";
+import { SkillDB, FailureKnowledgeDB, KarmaMemory } from "@zen-ai/memory";
 import {
     fileReadTool,
     fileWriteTool,
@@ -23,6 +23,7 @@ import { TriggerSystem, taskFromTrigger, createTaskId } from "./triggers.js";
 import { HealthMonitor } from "./monitor.js";
 import { TaskScheduler } from "./scheduler.js";
 import type { OrchestratorConfig, TaskDef, RuntimeMetrics, TriggerDef } from "./types.js";
+import { join } from "node:path";
 
 /**
  * ZenOrchestrator — The unifying consciousness of the runtime.
@@ -270,6 +271,8 @@ export class ZenOrchestrator {
             this.daemon.recordTaskFailed();
             this.monitor.recordTaskFailed();
             console.error(`❌ Task failed: ${msg}`);
+            // Record failure for future learning
+            await this.recordRuntimeFailure(task, msg);
         } finally {
             this.currentAgent = null;
         }
@@ -313,7 +316,41 @@ export class ZenOrchestrator {
             });
         }
 
+        if (this.config.karmaMemoryDBPath) {
+            config.karmaMemoryDB = new KarmaMemory({
+                persistPath: this.config.karmaMemoryDBPath,
+                llm,
+            });
+        }
+
         return config;
+    }
+
+    /**
+     * Record a runtime-level failure to FailureDB.
+     * This captures task-level failures as proverbs for future agents.
+     */
+    private async recordRuntimeFailure(task: TaskDef, error: string): Promise<void> {
+        if (!this.config.failureDBPath) return;
+
+        try {
+            const apiKey = this.config.openaiApiKey ?? process.env.OPENAI_API_KEY;
+            const llm = new OpenAIAdapter(apiKey ? { apiKey } : undefined);
+            const failureDB = new FailureKnowledgeDB({
+                persistPath: this.config.failureDBPath,
+                llm,
+            });
+
+            await failureDB.store({
+                id: `runtime_fk_${Date.now()}`,
+                proverb: `Task "${task.goal.slice(0, 100)}" failed: ${error.slice(0, 200)}`,
+                condition: `When attempting the goal: ${task.goal.slice(0, 100)}`,
+                severity: "HIGH",
+                source: `runtime_task_${task.id}`,
+            });
+        } catch {
+            // Best-effort — don't crash the runtime for logging
+        }
     }
 
     // --- Helpers ---
