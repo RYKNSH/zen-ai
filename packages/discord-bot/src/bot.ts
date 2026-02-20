@@ -25,7 +25,18 @@ import type { ZenAgentConfig, Tool, LLMAdapter } from "@zen-ai/core";
 import { OpenAIAdapter } from "@zen-ai/adapter-openai";
 import type { OpenAIAdapterConfig } from "@zen-ai/adapter-openai";
 import { SkillDB, FailureKnowledgeDB, KarmaMemory } from "@zen-ai/memory";
-import { fileReadTool, fileWriteTool, httpTool, startSandboxTool } from "@zen-ai/tools";
+import {
+    fileReadTool,
+    fileWriteTool,
+    httpTool,
+    createShellTool,
+    directoryListTool,
+    codeSearchTool,
+    codeEditTool,
+    projectScaffoldTool,
+    createForgeTool,
+    loadForgedTools,
+} from "@zen-ai/tools";
 import {
     zenRunCommand,
     handleZenRun,
@@ -136,11 +147,18 @@ export class ZenDiscordBot {
     private createAgentConfig(goal: string, maxSteps: number): ZenAgentConfig {
         const llm = new OpenAIAdapter(this.config.llmConfig);
 
+        // Forge tool needs a ref to addTool — we'll set it after agent creation
+        const forgeDir = join(process.cwd(), "data", "forged-tools");
+
         const tools: Tool[] = [
             fileReadTool,
             fileWriteTool,
             httpTool,
-            startSandboxTool,
+            directoryListTool,
+            codeSearchTool,
+            codeEditTool,
+            projectScaffoldTool,
+            createShellTool({ mode: "sandboxed" }),
             ...(this.config.tools ?? []),
         ];
 
