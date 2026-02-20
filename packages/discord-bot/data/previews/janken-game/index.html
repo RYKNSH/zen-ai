@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>じゃんけんゲーム</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 50px;
+        }
+        button {
+            font-size: 20px;
+            margin: 10px;
+            padding: 10px 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>じゃんけんゲーム</h1>
+    <p>選んでください:</p>
+    <button onclick="play('グー')">グー</button>
+    <button onclick="play('チョキ')">チョキ</button>
+    <button onclick="play('パー')">パー</button>
+    <p id="result"></p>
+
+    <script>
+        function play(userChoice) {
+            const choices = ['グー', 'チョキ', 'パー'];
+            const randomIndex = Math.floor(Math.random() * 3);
+            const aiChoice = choices[randomIndex];
+
+            let result = '';
+            if (userChoice === aiChoice) {
+                result = 'あいこでしょ！';
+            } else if (
+                (userChoice === 'グー' && aiChoice === 'チョキ') ||
+                (userChoice === 'チョキ' && aiChoice === 'パー') ||
+                (userChoice === 'パー' && aiChoice === 'グー')
+            ) {
+                result = 'あなたの勝ち！';
+            } else {
+                result = 'あなたの負け...';
+            }
+
+            document.getElementById('result').innerText = `あなた: ${userChoice}, AI: ${aiChoice} - ${result}`;
+        }
+    </script>
+</body>
+</html>

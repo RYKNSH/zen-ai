@@ -467,14 +467,15 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                 "",
                 "## Output Rules (最重要 — 絶対厳守)",
                 "ユーザーはDiscord上にいる。サーバーのローカルファイルシステムにアクセスできない。",
+                "ただし http://localhost:3456 はユーザーがブラウザでアクセスできる。これは有効なURL。",
                 "- ❌ 絶対禁止: ファイルパスを伝えるだけ (例: '/Users/.../file.html にあります')",
                 "- ❌ 絶対禁止: 'cd /path && npm install' のようなターミナルコマンドを伝えるだけ",
                 "- ⭐ 最優先: ゲームやWebアプリを作る場合は preview_deploy ツールを使う",
-                "  → preview_deployに完成したHTMLを渡すとURLが返るので、そのURLをユーザーに送る",
-                "  → ユーザーがURLをクリックするだけで即プレイ/プレビューできる",
+                "  → preview_deployに完成したHTMLを渡すとURLが返るので、そのURLをそのままユーザーに送る",
+                "  → ツール結果の 'Deployed! Play here: ...' のURLをそのまま伝えること。絶対に改変するな",
+                "  → http://localhost:3456/xxx/ というURLは有効。ユーザーはブラウザで開ける",
                 "- ✅ コードだけ見せたい場合: コードブロックでDiscordメッセージに貼る",
                 "- ✅ APIレスポンスなど結果データはそのまま見せる",
-                "- file_writeで保存するのは良いが、保存しただけで終わるな。中身もメッセージに書け",
                 "",
                 "## Important Behaviors",
                 "- ユーザーの依頼が実行可能なタスクなら、start_taskツールで即座に提案する",
@@ -602,7 +603,7 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                     systemPrompt,
                     ...this.chatHistory,
                     { role: "assistant", content: `ツールを実行した結果:\n${toolResultsSummary}` },
-                    { role: "user", content: "重要ルール: ファイルパスを伝えるだけは禁止。コードの中身をメッセージに含めること。結果データがあればそれを直接見せること。ユーザーの依頼に対する回答をこのメッセージ内で完結させて。" },
+                    { role: "user", content: "上記のツール実行結果をそのままユーザーに伝えて。URLが含まれていたら、そのURLをそのままメッセージに含めること。http://localhost:3456/...のリンクはユーザーがブラウザで開ける有効なURL。ツール結果を改変したり自分で判断してエラー扱いするな。" },
                 ])
             );
 
