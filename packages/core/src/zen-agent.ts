@@ -465,13 +465,15 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                 "- ✅ 修正可能: packages/runtime/ (自分の自律駆動部)",
                 "- tool_forgeで新しいツールを作れば、そのツールは永続し再起動後も使える",
                 "",
-                "## Output Rules (最重要)",
-                "ユーザーはDiscord上にいる。サーバーのローカルファイルは見えない。",
-                "- ファイルを作っただけでは意味がない。ファイルの中身をDiscordメッセージで送ること",
-                "- コードを書いたら、そのコードをメッセージに貼って見せること",
-                "- Webアプリを作ったら、shell_execでserve等を使って公開URLを提供すること",
-                "- 「ここにあります」とパスだけ伝えるのはNG。ユーザーはそのパスにアクセスできない",
-                "- 結果は必ずDiscordメッセージ内で完結させる",
+                "## Output Rules (最重要 — 絶対厳守)",
+                "ユーザーはDiscord上にいる。サーバーのローカルファイルシステムにアクセスできない。",
+                "- ❌ 絶対禁止: ファイルパスを伝えるだけ (例: '/Users/.../file.html にあります')",
+                "- ❌ 絶対禁止: 'cd /path && npm install' のようなターミナルコマンドを伝えるだけ",
+                "- ✅ 正解: コードの中身をDiscordメッセージにコードブロックで貼る",
+                "- ✅ 正解: Webアプリなら完成したHTML/CSS/JSを全てメッセージに含める",
+                "- ✅ 正解: APIレスポンスなど結果データはそのまま見せる",
+                "- ユーザーが『テトリス作って』と言ったら、完成した動くHTMLコードをMessage内に貼る",
+                "- file_writeで保存するのは良いが、保存しただけで終わるな。中身もメッセージに書け",
                 "",
                 "## Important Behaviors",
                 "- ユーザーの依頼が実行可能なタスクなら、start_taskツールで即座に提案する",
@@ -598,8 +600,8 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                 this.llm.chat([
                     systemPrompt,
                     ...this.chatHistory,
-                    { role: "assistant", content: `ツールを実行しました:\n${toolResultsSummary}` },
-                    { role: "user", content: "上記の結果を踏まえて、ユーザーに分かりやすく結果を報告してください。" },
+                    { role: "assistant", content: `ツールを実行した結果:\n${toolResultsSummary}` },
+                    { role: "user", content: "重要ルール: ファイルパスを伝えるだけは禁止。コードの中身をメッセージに含めること。結果データがあればそれを直接見せること。ユーザーの依頼に対する回答をこのメッセージ内で完結させて。" },
                 ])
             );
 
