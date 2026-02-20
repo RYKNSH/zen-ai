@@ -9,8 +9,8 @@ import type { Tool, ToolResult } from "@zen-ai/core";
 
 const execAsync = promisify(exec);
 
-/** Maximum execution time for shell commands (30 seconds). */
-const SHELL_TIMEOUT = 30_000;
+/** Maximum execution time for shell commands (120 seconds — enough for npm install/build). */
+const SHELL_TIMEOUT = 120_000;
 
 /** Allowlisted command prefixes. Only these commands can be executed. */
 const ALLOWED_PREFIXES = [

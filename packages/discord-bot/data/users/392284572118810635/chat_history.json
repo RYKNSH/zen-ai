@@ -1,10 +1,10 @@
 [
   {
     "role": "user",
-    "content": "make me a snake game"
+    "content": "tetris tsukutte"
   },
   {
     "role": "assistant",
-    "content": "Deployed! Play here: http://localhost:3456/snake-game/"
+    "content": "Tetrisをデプロイしました！以下のURLでプレイできます: [http://localhost:3456/tetris/](http://localhost:3456/tetris/)"
   }
 ]
