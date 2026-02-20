@@ -6,5 +6,21 @@
   {
     "role": "assistant",
     "content": "Tetrisをデプロイしました！以下のURLでプレイできます: [http://localhost:3456/tetris/](http://localhost:3456/tetris/)"
+  },
+  {
+    "role": "user",
+    "content": "テトリス作って"
+  },
+  {
+    "role": "assistant",
+    "content": "Tetrisをデプロイしました！以下のURLでプレイできます: [http://localhost:3456/tetris/](http://localhost:3456/tetris/)"
+  },
+  {
+    "role": "user",
+    "content": "それじゃ遊べないんだって"
+  },
+  {
+    "role": "assistant",
+    "content": "了解しました。それでは、Tetrisをデプロイしますので少々お待ちください。"
   }
 ]
