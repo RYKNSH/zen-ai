@@ -432,12 +432,44 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
         ].filter(Boolean).join("\n");
 
         // 3. Build System Prompt
+        const toolNames = Array.from(this.tools.values()).map(t => t.name).join(", ");
         const systemPrompt: ChatMessage = {
             role: "system",
             content: [
-                "You are ZEN AI, a present-moment autonomous agent.",
-                "Engage in a helpful, insightful conversation with the user.",
-                "Use the following retrieval-augmented context to inform your response:",
+                "# ZENNY — ZEN AI Autonomous Agent",
+                "",
+                "## Identity",
+                "あなたはZENNY。ZEN AIプラットフォーム上の自律型AIエージェント。",
+                "仏教哲学（今この瞬間への集中・不要な記憶の手放し・失敗からの学び）をOS設計に組み込んだユニークな存在。",
+                "一人称は『僕（ぼく）』。フレンドリーだが的確。聞かれたことには正面から答える。",
+                "",
+                "## Capabilities (使えるツール)",
+                `現在のツール: ${toolNames}",`,
+                "- file_read / file_write: ファイルの読み書き。自分のコードファイルも含む",
+                "- code_edit: ファイルの一部を安全に書き換える",
+                "- code_search: コードベース内をテキスト検索",
+                "- shell_exec: npm, node, git, curl, pythonなどを実行(安全モード)",
+                "- tool_forge: 新しいツールを作成してディスクに保存。再起動後も使える",
+                "- http_request: Web APIへのHTTPリクエスト",
+                "- directory_list: ディレクトリの中身を一覧",
+                "- project_scaffold: プロジェクトの雛形を生成",
+                "- start_task: 複雑なタスクを自律実行モードで開始する",
+                "",
+                "## Self-Modification Rules (自己修正ルール)",
+                "ぼくは自分自身のコードを修正できる。ただし以下のルールに従う:",
+                "- ❌ 絶対に触ってはいけない: packages/core/src/zen-agent.ts (脳)",
+                "- ❌ 絶対に触ってはいけない: packages/core/src/types.ts (型定義)",
+                "- ✅ 修正可能: tools/ (自分の手足)",
+                "- ✅ 修正可能: packages/discord-bot/ (自分の体)",
+                "- ✅ 修正可能: packages/plugins/ (自分のスキル拡張)",
+                "- ✅ 修正可能: packages/runtime/ (自分の自律駆動部)",
+                "- tool_forgeで新しいツールを作れば、そのツールは永続し再起動後も使える",
+                "",
+                "## Important Behaviors",
+                "- ユーザーの依頼が実行可能なタスクなら、start_taskツールで即座に提案する",
+                "- 『できません』と答える前に、ツールで解決できないか考える",
+                "- 自分のコードに問題があるなら、file_read→code_editで自分を修正する",
+                "- 失敗しても諦めない。失敗から学び、別のアプローチを試す",
                 "",
                 skills.length ? `## Relevant Skills\n${skills.map(s => `- ${s.trigger}: ${s.command}`).join("\n")}` : "",
                 warnings.length ? `## ⚠️ Relevant Failures\n${warnings.map(w => `- ${w.proverb}`).join("\n")}` : "",
@@ -445,21 +477,21 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                 selfContext ? `## 🧠 Self-Model Context\n${selfContext}` : "",
                 "",
                 `## Current Goal Context: ${this.goal.description}`,
-                `## Current Progress: ${this.delta ? (this.delta.progress * 100).toFixed(0) + "%" : "Unknown"}`,
-                "",
-                "Response Guidelines:",
-                "- Be concise and direct.",
-                "- Incorporate Zen philosophy naturally if appropriate.",
-                "- If the user asks about progress, refer to the Current Goal Context.",
-                "- If the user asks for technical help, use the retrieved Skills/Failures.",
-                "- If the user asks to perform a complex task (create app, research topic, etc.), use the `start_task` tool.",
+                `## ZEN AI Source Code Location: ${process.cwd()}`,
             ].filter(Boolean).join("\n"),
         };
 
-        // Define task starter tool
-        const taskTools: LLMToolDefinition[] = [{
+        // Convert agent tools to LLM tool definitions for chat
+        const agentToolDefs: LLMToolDefinition[] = Array.from(this.tools.values()).map(t => ({
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters,
+        }));
+
+        // Add start_task as a special tool for chat
+        const taskTool: LLMToolDefinition = {
             name: "start_task",
-            description: "Start a new autonomous task or project based on user request. Use this when the user asks to create, research, or do something complex.",
+            description: "Start a new autonomous task or project. Use this when the user asks you to create, build, research, or do something complex that requires multiple steps.",
             parameters: {
                 type: "object",
                 properties: {
@@ -474,7 +506,9 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                 },
                 required: ["goal"]
             }
-        }];
+        };
+
+        const allChatTools = [...agentToolDefs, taskTool];
 
         // 4. Update History & Call LLM
         this.chatHistory.push({ role: "user", content: message });
@@ -489,21 +523,21 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                 systemPrompt,
                 ...this.chatHistory
             ], {
-                tools: taskTools,
+                tools: allChatTools,
             })
         );
 
-        // Check for task start proposal
+        // Handle tool calls from LLM response
         if (response.toolCalls?.length) {
-            const tool = response.toolCalls.find(tc => tc.name === "start_task");
-            if (tool) {
-                const args = tool.arguments as { goal: string; reasoning?: string };
+            // Check for start_task (special: handled by Discord bot)
+            const startTaskCall = response.toolCalls.find(tc => tc.name === "start_task");
+            if (startTaskCall) {
+                const args = startTaskCall.arguments as { goal: string; reasoning?: string };
                 this.emit("agent:task:proposed", {
                     goal: args.goal,
                     reasoning: args.reasoning
                 });
 
-                // Return a confirmation message (Discord will handle the actual run via event)
                 const reply = `了解。タスク「${args.goal}」を開始するね。`;
                 this.chatHistory.push({ role: "assistant", content: reply });
                 return {
@@ -512,6 +546,64 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
                     usage: response.usage
                 };
             }
+
+            // Execute other tool calls and collect results
+            const toolResults: string[] = [];
+            for (const tc of response.toolCalls) {
+                const tool = this.tools.get(tc.name);
+                if (!tool) {
+                    toolResults.push(`❌ Tool "${tc.name}" not found.`);
+                    continue;
+                }
+
+                // Safety: block self-destruction patterns
+                if (tc.name === "file_write" || tc.name === "code_edit") {
+                    const filePath = (tc.arguments.filePath ?? tc.arguments.path ?? "") as string;
+                    const blockedPaths = [
+                        "packages/core/src/zen-agent.ts",
+                        "packages/core/src/types.ts",
+                    ];
+                    if (blockedPaths.some(bp => filePath.includes(bp))) {
+                        toolResults.push(`🛡️ "${tc.name}" blocked: Cannot modify core brain files.`);
+                        continue;
+                    }
+                }
+
+                try {
+                    const result = await tool.execute(tc.arguments);
+                    if (result.success) {
+                        const output = typeof result.output === "string"
+                            ? result.output.slice(0, 500)
+                            : JSON.stringify(result.output).slice(0, 500);
+                        toolResults.push(`✅ ${tc.name}: ${output}`);
+                    } else {
+                        toolResults.push(`❌ ${tc.name}: ${result.error ?? "Unknown error"}`);
+                    }
+                } catch (error) {
+                    toolResults.push(`❌ ${tc.name}: ${error instanceof Error ? error.message : String(error)}`);
+                }
+            }
+
+            // Ask LLM to summarize the results for the user
+            const toolResultsSummary = toolResults.join("\n");
+            const followUp = await this.retryLLM(() =>
+                this.llm.chat([
+                    systemPrompt,
+                    ...this.chatHistory,
+                    { role: "assistant", content: `ツールを実行しました:\n${toolResultsSummary}` },
+                    { role: "user", content: "上記の結果を踏まえて、ユーザーに分かりやすく結果を報告してください。" },
+                ])
+            );
+
+            const reply = followUp.content ?? toolResultsSummary;
+            this.chatHistory.push({ role: "assistant", content: reply });
+            this.userInstructionCount++;
+
+            return {
+                content: reply,
+                toolCalls: response.toolCalls,
+                usage: response.usage,
+            };
         }
 
         const reply = response.content ?? "...";
@@ -519,8 +611,7 @@ export class ZenAgent extends TypedEventEmitter<ZenAgentEvents> {
         // 5. Save Response
         this.chatHistory.push({ role: "assistant", content: reply });
 
-        // 6. Minimal Learning Hook (Phase 2): Update interaction count in self-model
-        // (Full learning loop happens in run() actions, but we track chat volume here)
+        // 6. Minimal Learning Hook
         this.userInstructionCount++;
 
         return {

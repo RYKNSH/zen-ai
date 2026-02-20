@@ -293,13 +293,23 @@ export class ZenDiscordBot {
                         : undefined;
 
                     agent = new ZenAgent({
-                        goal: "ユーザーの良き対話相手となり、共に学び、成長すること。",
+                        goal: "ユーザーの良き対話相手となり、共に学び、成長すること。依頼されたタスクは実行する。",
                         llm,
+                        tools: [
+                            fileReadTool,
+                            fileWriteTool,
+                            httpTool,
+                            directoryListTool,
+                            codeSearchTool,
+                            codeEditTool,
+                            projectScaffoldTool,
+                            createShellTool({ mode: "sandboxed" }),
+                        ],
                         failureDB,
                         karmaMemoryDB: karmaDB,
                         skillDB,
                         selfModelPath: join(userDir, "self_model.json"),
-                        maxSteps: 5, // Chat doesn't use steps much, but needed for config
+                        maxSteps: 5,
                     });
 
                     // Load DBs
