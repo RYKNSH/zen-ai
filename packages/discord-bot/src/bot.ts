@@ -36,6 +36,8 @@ import {
     projectScaffoldTool,
     createForgeTool,
     loadForgedTools,
+    createPreviewTool,
+    startPreviewServer,
 } from "@zen-ai/tools";
 import {
     zenRunCommand,
@@ -108,6 +110,13 @@ export class ZenDiscordBot {
                 "DISCORD_BOT_TOKEN is required. Set it in .env or pass in config.",
             );
         }
+
+        // Start preview server for serving ZENNY-created apps
+        const previewDir = join(process.cwd(), "data", "previews");
+        if (!existsSync(previewDir)) {
+            mkdirSync(previewDir, { recursive: true });
+        }
+        await startPreviewServer(previewDir, 3456);
 
         console.log("🧘 ZEN AI Discord Bot starting...");
         await this.client.login(token);
@@ -292,6 +301,8 @@ export class ZenDiscordBot {
                         ? new SkillDB({ persistPath: this.config.skillDBPath })
                         : undefined;
 
+                    const previewDir = join(process.cwd(), "data", "previews");
+
                     agent = new ZenAgent({
                         goal: "ユーザーの良き対話相手となり、共に学び、成長すること。依頼されたタスクは実行する。",
                         llm,
@@ -304,6 +315,7 @@ export class ZenDiscordBot {
                             codeEditTool,
                             projectScaffoldTool,
                             createShellTool({ mode: "sandboxed" }),
+                            createPreviewTool(previewDir),
                         ],
                         failureDB,
                         karmaMemoryDB: karmaDB,
