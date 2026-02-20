@@ -14,6 +14,12 @@ vi.mock("@google/generative-ai", () => {
                     generateContent: vi.fn().mockResolvedValue({
                         response: {
                             text: () => "Hello from Gemini",
+                            functionCalls: () => undefined,
+                            usageMetadata: {
+                                promptTokenCount: 10,
+                                candidatesTokenCount: 5,
+                                totalTokenCount: 15,
+                            },
                             candidates: [
                                 {
                                     content: {

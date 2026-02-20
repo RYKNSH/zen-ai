@@ -13,6 +13,10 @@ vi.mock("@anthropic-ai/sdk", () => {
                     content: [
                         { type: "text", text: "Hello from Claude" },
                     ],
+                    usage: {
+                        input_tokens: 10,
+                        output_tokens: 5,
+                    },
                 }),
             };
         },
@@ -82,6 +86,7 @@ describe("AnthropicAdapter", () => {
         // Override mock for this test
         const mockCreate = vi.fn().mockResolvedValue({
             content: [{ type: "tool_use", id: "t1", name: "fn", input: {} }],
+            usage: { input_tokens: 5, output_tokens: 3 },
         });
         (a as any).client = { messages: { create: mockCreate } };
 
